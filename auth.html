@@ -57,11 +57,10 @@
   </div>
 
   <p class="muted" style="margin-top:12px">
-    Tip: in Google Cloud: add <code>https://seolktqxdxstwqdiqzke.supabase.co/auth/v1/callback</code> as an authorized redirect URI.
+    Tip: in Google Cloud add <code>https://seolktqxdxstwqdiqzke.supabase.co/auth/v1/callback</code> as an authorized redirect URI.
   </p>
 </div>
 
-<!-- ONE config + ONE client -->
 <script>
   window.WILLOW_CFG = {
     url: 'https://seolktqxdxstwqdiqzke.supabase.co',
@@ -76,7 +75,7 @@
   const supa = window.__supa;
   const appUrl = new URL('index.html', location.href).href;
 
-  const { data: { session } } = await supa.auth.getSession();
+  const { data: { session) } } = await supa.auth.getSession().catch(()=>({data:{}}));
   if (session?.user) {
     localStorage.setItem('willow_user', JSON.stringify({ id: session.user.id, email: session.user.email }));
     location.href = appUrl;
@@ -84,10 +83,8 @@
 
   const msg = (t, cls='muted') => { const el=document.getElementById('msg'); el.className=cls; el.textContent=t; };
 
-  // Mode toggle
   let mode = 'signin';
   const modeTitle = document.getElementById('modeTitle');
-  const helper = document.getElementById('helper');
   const submitBtn = document.getElementById('submitBtn');
   const switchBtn = document.getElementById('switchBtn');
   function setMode(m){
