@@ -143,7 +143,7 @@
   </section>
 
   <section id="forecasts" style="margin-top:24px;">
-    <h2>Forecasts <span class="muted">• read-only (manage in <a href="admin.html">admin</a>)</span></h2>
+    <h2>Forecasts <span class="muted">• vote once per question</span> — <a href="admin.html">admin</a></h2>
     <div id="fcList" style="margin-top:12px;"></div>
   </section>
 </main>
@@ -186,6 +186,7 @@
   }
 </script>
 
+<!-- Transformers loader for local agents -->
 <script type="module">
 (function(){
   async function loadTransformers() {
@@ -224,6 +225,7 @@
 })();
 </script>
 
+<!-- Local agents -->
 <script type="module">
 (function(){
   function defineAgents(){
@@ -236,7 +238,7 @@
       const rows=data.length/dim; const out=new Float32Array(dim);
       for(let r=0;r<rows;r++){const base=r*dim; for(let c=0;c<dim;c++) out[c]+=data[base+c]}
       for(let c=0;c<dim;c++) out[c]/=rows; let n=0; for(let c=0;c<dim;c++) n+=out[c]*out[c]; n=Math.sqrt(n)||1;
-      for(let c=0;c++) out[c]/=n; return out;
+      for(let c=0;c<dim;c++) out[c]/=n; return out;
     }
     function cosine(a,b){ let s=0,na=0,nb=0; for(let i=0;i<a.length;i++){s+=a[i]*b[i];na+=a[i]*a[i];nb+=b[i]*b[i]} return s/(Math.sqrt(na)*Math.sqrt(nb)||1) }
 
@@ -255,7 +257,7 @@
     ];
     function analyzeStyle(t){ t=(t||'').trim(); const words=t.split(/\s+/).filter(Boolean);
       const avg = words.length ? Math.round(words.join(' ').length / Math.max(1, t.split(/[.!?]+/).filter(Boolean).length)) : 80;
-      const short=avg<120, first=/\b(I|we|my|our|I'm|we're)\b/i.test(t), bullets=/^\s*[-*•]/m.test(t);
+      const short=avg<120, first=/\b(I|we|my|our|I'm|we're)\b/i.test(t), bullets(/^\s*[-*•]/m.test(t));
       return {short, firstPerson:first, bullets};
     }
     function chooseSeed(note){
@@ -271,11 +273,13 @@
         if(!others.length) return {links:[],proposed_notes:[],feedback:"No other notes yet."};
         try{
           const e=await ensureEmbedder();
-          const q=toVector(await e(note.content,{pooling:'mean',normalize:false}));
-          const vecs=await Promise.all(others.map(n=>e(n.content,{pooling:'mean',normalize:false}).then(toVector)));
+          const q=await e(note.content,{pooling:'mean',normalize:true});
+          const vecs=await Promise.all(others.map(n=>e(n.content,{pooling:'mean',normalize:true})));
           const A=new Set((note.tags||[]));
           const results=others.map((n,i)=>{
-            const sim=cosine(q,vecs[i]), sim01=(sim+1)/2;
+            const qv=q.data||q; const ov=vecs[i].data||vecs[i];
+            let s=0,na=0,nb=0; for (let k=0;k<qv.length;k++){ s+=qv[k]*ov[k]; na+=qv[k]*qv[k]; nb+=ov[k]*ov[k]; }
+            const sim01 = s/(Math.sqrt(na)*Math.sqrt(nb)||1)*0.5+0.5;
             const B=new Set(n.tags||[]); const inter=[...A].filter(x=>B.has(x)).length; const uni=new Set([...A,...B]).size||1; const jacc=inter/uni;
             const score=0.7*sim01+0.3*jacc; const type=inter>0?'thematic':'related';
             return {from:note.id,to:n.id,type,confidence:+score.toFixed(3)};
@@ -294,7 +298,7 @@
         const body= style.bullets
           ? `- Hypothesis: ${seed.tag} materially shapes ${topic} through second-order channels.\n- Channels: incentives, balance-sheet transmission, timing.\n- Evidence: ${seed.hint}.\n- What would falsify?`
           : `${who} suspect ${seed.tag} materially shapes ${topic} via second-order channels. Consider evidence via ${seed.hint}. What would falsify this?`;
-        return { links:[], proposed_notes:[{ title:seed.title, content:body, tags:["blind-spot",seed.tag] }], feedback:"Blind-spot note (new path candidate)." };
+        return { links:[], proposed_notes:[{ title:seed.title, content:body, tags:[seed.tag] }], feedback:"Blind-spot note (new path candidate)." };
       },
       async historian(note){
         const text=(note.title+' '+note.content).toLowerCase();
@@ -363,6 +367,7 @@ window.pushUserTagStats = async function pushUserTagStats() {
 };
 </script>
 
+<!-- Notes, placement, graph, agents glue -->
 <script>
   const LS_NOTES='willow_notes', LS_LINKS='willow_links';
   const loadNotes=()=>{try{return JSON.parse(localStorage.getItem(LS_NOTES)||'[]')}catch{return[]}};
@@ -372,7 +377,7 @@ window.pushUserTagStats = async function pushUserTagStats() {
 
   const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
   const parseTags=s=>(s||'').split(',').map(t=>t.trim().toLowerCase()).filter(Boolean);
-  const escapeHtml=s=>String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+  const escapeHtml=s=>String(s).replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   const now=()=>new Date().toISOString();
   const showMsg=(t,ok=true)=>{const el=$('#saveMsg'); el.textContent=t; el.className='muted '+(ok?'ok':'err'); setTimeout(()=>{el.textContent='';el.className='muted'},2200)};
   const agentMsg=t=>{const el=$('#agentMsg'); el.textContent=t; setTimeout(()=>{el.textContent=''},3000)};
@@ -527,7 +532,7 @@ window.pushUserTagStats = async function pushUserTagStats() {
   function acceptProposedNote(p, context){
     let num; const tags=p.tags||[];
     if(tags.includes('blind-spot')) num = nextRoot();
-    else if(context) num = suggestChild(context.num) || (isNum(context.num)?context.num+'a':context.num+'1');
+    else if(context) num = suggestChild(context.num) || (/\d$/.test(context.num)?context.num+'a':context.num+'1');
     else num = nextRoot();
     while(loadNotes().some(n=>n.num===num)) num = suggestSibling(num) || (/[a-z]$/.test(num)?num+'a':num+'1');
     let content=p.content||''; if(tags.includes('analogy')) content = stripHistorianLead(content);
@@ -582,9 +587,23 @@ window.pushUserTagStats = async function pushUserTagStats() {
   refreshRecent(); renderGraph();
 </script>
 
+<!-- Forecasts (user voting once) -->
 <script>
 const LS_FC = 'willow_forecasts';
+const LS_VOTES = 'willow_votes';
 const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
+const saveForecasts = (arr) => localStorage.setItem(LS_FC, JSON.stringify(arr));
+const loadVotes = () => { try { return JSON.parse(localStorage.getItem(LS_VOTES) || '[]'); } catch { return []; } };
+const saveVotes = (arr) => localStorage.setItem(LS_VOTES, JSON.stringify(arr));
+const groupVotesByForecast = () => {
+  const map = new Map();
+  for (const v of loadVotes()) {
+    if (!map.has(v.forecast_id)) map.set(v.forecast_id, []);
+    map.get(v.forecast_id).push(v);
+  }
+  return map;
+};
+
 const clamp = (x,a=0.001,b=0.999) => Math.min(b, Math.max(a, x));
 const logit = (p) => Math.log(p/(1-p));
 const invLogit = (L) => 1/(1+Math.exp(-L));
@@ -600,11 +619,26 @@ function renderSparkline(values, w=120, h=28) {
   const pts = values.map((p,i)=>`${(i*step).toFixed(1)},${(h - (p-min)/(max-min)*h).toFixed(1)}`).join(' ');
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="#4f46e5" stroke-width="2" points="${pts}"/></svg>`;
 }
-function renderForecastCardRO(f){
-  const values = (f.updates||[]).map(u=>u.p);
-  const pStar = aggregateLogOdds(f.updates||[]) ?? (values.length ? values.at(-1) : 0.5);
+
+function combinedEvents(f, votes) {
+  const ev = [];
+  (f.updates||[]).forEach(u => ev.push({ t: u.t || u.time || f.updated_at || new Date().toISOString(), p: u.p }));
+  (votes||[]).forEach(v => ev.push({ t: v.created_at || v.t, p: v.prob }));
+  ev.sort((a,b)=> new Date(a.t) - new Date(b.t));
+  return ev;
+}
+
+function renderForecastCardUser(f, votesMap){
+  const votes = votesMap.get(f.id) || [];
+  const me = window.currentUserId;
+  const my = me ? votes.find(v => v.user_id === me) : null;
+  const events = combinedEvents(f, votes);
+  const values = events.map(e=>e.p);
+  const pStar = aggregateLogOdds(events) ?? (values.length ? values.at(-1) : 0.5);
   const pct = Math.round((pStar||0.5)*100);
   const status = f.status || 'open';
+  const open = status === 'open';
+
   return `
   <div class="card" data-fid="${f.id}">
     <div class="row" style="justify-content:space-between;">
@@ -612,33 +646,83 @@ function renderForecastCardRO(f){
         <strong>${f.title}</strong>
         <div class="muted">${f.resolution_criteria||''}</div>
         <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}${f.resolution?.outcome?`, outcome: ${f.resolution.outcome}`:''}</div>
-        ${status==='resolved' && f.metrics?.brier!=null ? `<div class="pill">Brier: ${(+f.metrics.brier).toFixed(3)}</div>`:''}
+        <div class="muted">Votes: ${votes.length}</div>
       </div>
       <div style="text-align:right;">
         <div class="pill" style="display:inline-block;margin-bottom:6px;">Agg: ${pct}%</div>
         ${renderSparkline(values)}
       </div>
     </div>
+    ${ open ? `
+      <div class="row" style="margin-top:10px;align-items:center;">
+        ${ my ? `<span class="pill">You voted: ${Math.round((my.prob||0.5)*100)}% <span class="muted">(${new Date(my.created_at||Date.now()).toLocaleDateString()})</span></span>` :
+        `<input type="range" min="1" max="99" value="${pct}" class="voteProb" style="flex:1">
+         <span class="pill voteProbLabel" style="min-width:48px;text-align:center;">${pct}%</span>`}
+      </div>
+      ${ my ? `` : `<textarea class="voteWhy" placeholder="Why? (optional)"></textarea>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn primary voteSubmit">Submit vote</button>
+      </div>`}
+    ` : ``}
   </div>`;
 }
-function refreshForecastListRO(){
+
+function refreshForecastListUser(){
   const box = document.getElementById('fcList');
   const arr = loadForecasts().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1));
-  box.innerHTML = arr.length ? arr.map(renderForecastCardRO).join('') : '<div class="muted">No forecasts yet.</div>';
+  const votesMap = groupVotesByForecast();
+  box.innerHTML = arr.length ? arr.map(f=>renderForecastCardUser(f, votesMap)).join('') : '<div class="muted">No forecasts yet.</div>';
+
+  box.querySelectorAll('.card[data-fid]').forEach(card=>{
+    const id = card.getAttribute('data-fid');
+    const slider = card.querySelector('.voteProb');
+    const label  = card.querySelector('.voteProbLabel');
+    if (slider && label) slider.addEventListener('input', ()=>label.textContent = slider.value + '%');
+
+    card.querySelector('.voteSubmit')?.addEventListener('click', async ()=>{
+      const sb = window.__supa;
+      const uid = window.currentUserId;
+      if (!sb || !uid) { alert('Sign in required.'); return; }
+      const p = slider ? Number(slider.value)/100 : 0.5;
+      const rationale = (card.querySelector('.voteWhy')?.value||'').trim();
+      try {
+        const { error } = await sb.from('forecast_votes').insert({ forecast_id: id, user_id: uid, prob: p, rationale });
+        if (error) {
+          if ((error.message||'').toLowerCase().includes('duplicate')) alert('You already voted on this question.');
+          else alert('Vote failed: ' + error.message);
+          return;
+        }
+        // push into local cache and re-render
+        const cur = loadVotes(); cur.push({ forecast_id:id, user_id:uid, prob:p, rationale, created_at:new Date().toISOString() });
+        saveVotes(cur);
+        refreshForecastListUser();
+      } catch (e) {
+        alert('Vote failed. See console.');
+        console.error(e);
+      }
+    });
+  });
 }
-refreshForecastListRO();
 </script>
 <script type="module">
   const sb = window.__supa;
+
   async function pullForecastsFromServer(){
     if(!sb) return;
     const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
-    if(error){ console.warn('[Willow] pull error', error); return; }
+    if(error){ console.warn('[Willow] pull forecasts error', error); return; }
     const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
     const map=new Map(local.map(f=>[f.id,f]));
     for(const r of data){ const l=map.get(r.id); if(!l || new Date(r.updated_at||0) > new Date(l.updated_at||0)) map.set(r.id, r); }
     localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
-    try { if(typeof refreshForecastListRO==='function') refreshForecastListRO(); } catch {}
+    try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
+  }
+  async function pullVotesFromServer(){
+    if(!sb) return;
+    const { data, error } = await sb.from('forecast_votes').select('*');
+    if(error){ console.warn('[Willow] pull votes error', error); return; }
+    localStorage.setItem('willow_votes', JSON.stringify(data || []));
+    try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
   }
   function subscribeRealtime(){
     if(!sb) return;
@@ -650,11 +734,26 @@ refreshForecastListRO();
         if(payload.eventType==='DELETE'){ map.delete(row.id); }
         else { const cur=map.get(row.id); if(!cur || new Date(row.updated_at||0) >= new Date(cur.updated_at||0)) map.set(row.id, row); }
         localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
-        try { if(typeof refreshForecastListRO==='function') refreshForecastListRO(); } catch {}
+        try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecast_votes' }, (payload) => {
+        const votes = (function(){ try { return JSON.parse(localStorage.getItem('willow_votes')||'[]'); } catch { return []; } })();
+        if (payload.eventType === 'DELETE') {
+          const row = payload.old;
+          const next = votes.filter(v => !(v.forecast_id===row.forecast_id && v.user_id===row.user_id));
+          localStorage.setItem('willow_votes', JSON.stringify(next));
+        } else {
+          const row = payload.new;
+          const i = votes.findIndex(v => v.forecast_id===row.forecast_id && v.user_id===row.user_id);
+          if (i >= 0) votes[i] = row; else votes.push(row);
+          localStorage.setItem('willow_votes', JSON.stringify(votes));
+        }
+        try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
       })
       .subscribe();
   }
   await pullForecastsFromServer();
+  await pullVotesFromServer();
   subscribeRealtime();
 </script>
 </body>
