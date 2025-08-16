@@ -258,5 +258,95 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
   await pullForecastsFromServer();
   subscribeRealtime();
 </script>
+
+<script type="module">
+  // Adds a "View votes" button per forecast and shows a table with email + vote
+  const sb = window.__supa;
+
+  // Hook after each render
+  function wireVoteViews() {
+    document.querySelectorAll('#fcList .card[data-fid]').forEach((card) => {
+      if (card.__votesWired) return;
+      card.__votesWired = true;
+
+      const topRow = card.querySelector('.row'); // header row
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.textContent = 'View votes';
+      btn.style.marginLeft = 'auto';
+
+      const box = document.createElement('div');
+      box.className = 'prop-card';
+      box.style.display = 'none';
+      box.innerHTML = '<div class="muted">Loading…</div>';
+
+      topRow.appendChild(btn);
+      card.appendChild(box);
+
+      let open = false, loaded = false;
+      btn.addEventListener('click', async () => {
+        open = !open;
+        box.style.display = open ? 'block' : 'none';
+        btn.textContent = open ? 'Hide votes' : 'View votes';
+        if (!open || loaded) return;
+
+        const fid = card.getAttribute('data-fid');
+        try {
+          const { data, error } = await sb.rpc('admin_votes_with_emails', { fid });
+          if (error) throw error;
+
+          if (!data || data.length === 0) {
+            box.innerHTML = '<div class="muted">No votes yet or you are not an admin.</div>';
+            loaded = true;
+            return;
+          }
+
+          const rows = data
+            .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+            .map(v => `
+              <tr>
+                <td>${v.email ?? v.user_id}</td>
+                <td style="text-align:right;">${Math.round(v.prob * 100)}%</td>
+                <td>${(v.rationale || '').replace(/</g,'&lt;')}</td>
+                <td>${new Date(v.created_at).toLocaleString()}</td>
+              </tr>
+            `).join('');
+
+          box.innerHTML = `
+            <div style="overflow:auto">
+              <table style="width:100%;border-collapse:collapse">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">User (email)</th>
+                    <th style="text-align:right;border-bottom:1px solid var(--line);padding:4px 0">Prob</th>
+                    <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">Why</th>
+                    <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">Time</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          `;
+          loaded = true;
+        } catch (e) {
+          console.error('[Willow] votes view error', e);
+          box.innerHTML = '<div class="muted">Unable to load votes (are you admin?).</div>';
+        }
+      });
+    });
+  }
+
+  // Run once now, and also after re-renders
+  wireVoteViews();
+  // Monkey-patch the existing refresh to auto-wire (safe if present)
+  const _origRefresh = window.refreshForecastList;
+  if (typeof _origRefresh === 'function') {
+    window.refreshForecastList = function(...args) {
+      _origRefresh.apply(this, args);
+      wireVoteViews();
+    };
+  }
+</script>
+
 </body>
 </html>
