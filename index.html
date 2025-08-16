@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Willow — Notes • Agents • Forecasts</title>
+<style>
+  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --bg:#f8fafc; --accent-soft:#eef2ff; --danger:#ef4444; --ok:#16a34a; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  header{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);z-index:10}
+  nav{max-width:1000px;margin:auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+  main{max-width:1000px;margin:auto;padding:20px 16px 80px}
+  h1,h2{margin:0} h2{font-size:20px;margin-top:24px}
+  .grid{display:grid;gap:16px}
+  .grid-cols-2{grid-template-columns:1fr}
+  @media(min-width:900px){.grid-cols-2{grid-template-columns:1fr 1fr}}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+  label span{font-size:12px;color:var(--muted);display:block}
+  input,textarea,button{font:inherit}
+  input,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-top:6px;background:#fff}
+  textarea{resize:vertical;min-height:120px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{border:1px solid var(--line);background:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn.danger{border-color:var(--danger);color:#ef4444}
+  .muted{color:var(--muted);font-size:12px}
+  .list{margin:8px 0 0;padding:0 0 0 18px}
+  .pill{font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
+  .ok{color:var(--ok)} .err{color:var(--danger)}
+  .linkbtn{background:none;border:none;padding:0;margin:0;cursor:pointer;color:inherit;text-align:left}
+  svg text{font:12px ui-sans-serif,system-ui;fill:#334155}
+  .edge-dashed{stroke-dasharray:4 4}
+  .agent-tag{border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+  .agent-on{background:var(--accent-soft)}
+  .prop-card{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px}
+  .place-banner{display:none;background:var(--accent-soft);border:1px dashed var(--accent);color:#312e81;padding:10px 12px;border-radius:10px;align-items:center;justify-content:space-between}
+  .place-mode .place-banner{display:flex}
+  .placeable{transition:background .15s,box-shadow .15s}
+  .place-mode .placeable{background:var(--accent-soft);box-shadow:0 0 0 2px var(--accent) inset;border-radius:8px}
+  .place-target{display:none;margin-top:10px}
+  .place-mode .place-target{display:block}
+  .place-newroot{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border:2px dashed var(--accent);border-radius:12px;background:#fff}
+  .place-mode svg g[data-id] circle{stroke:var(--accent);stroke-width:3px}
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <div class="row" style="gap:10px;"><div style="font-size:22px;">🌿</div><strong>Willow</strong></div>
+    <div class="row">
+      <a href="#notetaker">Notetaker</a>
+      <a href="#graph">Graph</a>
+      <a href="#forecasts">Forecasts</a>
+      <button id="newNoteBtn" class="btn">New Note</button>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <section id="notetaker">
+    <h2>Notetaker <span class="muted">• choose placement when you Publish/Save</span></h2>
+    <div id="placeBanner" class="place-banner" style="margin-top:12px;">
+      <div><strong>Placement Mode:</strong> click a note (place as child) or “New Path”.</div>
+      <div class="row"></div>
+    </div>
+
+    <div class="grid grid-cols-2" style="margin-top:12px;">
+      <form id="noteForm" class="card">
+        <input id="numInput" type="hidden"/>
+        <input id="hiddenKeepId" type="hidden" value="0"/>
+
+        <label><span>Title</span><input name="title" placeholder="Your note title" required></label>
+        <label style="margin-top:10px;"><span>Content</span><textarea name="content" placeholder="One idea, in your own words…" required></textarea></label>
+        <label style="margin-top:10px;"><span>Tags (comma-separated)</span><input name="tags" placeholder="banking, liquidity, funding"></label>
+        <label style="margin-top:10px;"><span>Source (optional)</span><input name="source" placeholder="link or reference"></label>
+
+        <div class="row" style="margin-top:12px;">
+          <button type="button" id="saveDraft" class="btn">Save Draft</button>
+          <button type="submit" class="btn primary">Publish</button>
+          <button type="button" id="deleteNote" class="btn danger">Delete Loaded</button>
+          <span id="saveMsg" class="muted"></span>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="row" style="justify-content:space-between;">
+            <strong>AI Agents (Local)</strong>
+            <span class="muted">Runs in your browser.</span>
+          </div>
+          <div class="row" id="agentToggles" style="margin-top:8px;">
+            <button type="button" data-agent="interconnectedness" class="agent-tag agent-on">Interconnectedness</button>
+            <button type="button" data-agent="historian" class="agent-tag agent-on">Historian</button>
+            <button type="button" data-agent="blind_spot" class="agent-tag agent-on">Blind-Spot</button>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <button type="button" id="preloadModels" class="btn">Preload Model</button>
+            <button type="button" id="runAgents" class="btn primary">Run Agents</button>
+            <span id="agentMsg" class="muted"></span>
+          </div>
+          <div id="agentResults" style="margin-top:10px;"></div>
+        </div>
+      </form>
+
+      <div class="card">
+        <div class="row" style="justify-content:space-between;">
+          <strong>Recently Saved</strong>
+          <div class="row">
+            <button id="clearAll" class="btn danger">Clear All (dev)</button>
+          </div>
+        </div>
+        <ul id="recentList" class="list"></ul>
+
+        <div id="newRootTarget" class="place-target" style="margin-top:16px;">
+          <button id="placeNewRoot" class="place-newroot btn" type="button">
+            ➕ Place at New Path <span id="nextRootPreview" class="pill"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="graph">
+    <h2 style="margin-top:24px;">Graph (Published Notes)</h2>
+    <p class="muted">Scroll to zoom • drag to pan • double-click to reset. Solid edges = tag overlap; dashed = accepted links.</p>
+    <div class="grid" style="grid-template-columns:2fr 1fr; margin-top:12px;">
+      <div class="card">
+        <svg id="kg" viewBox="0 0 800 450" style="width:100%;height:420px;">
+          <g id="vp"></g>
+        </svg>
+      </div>
+      <div class="card">
+        <strong>Stats</strong>
+        <ul class="list">
+          <li>Nodes: <span id="statNodes" class="stat">0</span></li>
+          <li>Edges (tags): <span id="statEdges" class="stat">0</span></li>
+          <li>Edges (links): <span id="statEdgesLinks" class="stat">0</span></li>
+        </ul>
+        <div class="row" style="margin-top:10px;">
+          <button id="rebuild" class="btn">Rebuild Graph</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="forecasts" style="margin-top:24px;">
+    <h2>Forecasts <span class="muted">• read-only (manage in <a href="admin.html">admin</a>)</span></h2>
+    <div id="fcList" style="margin-top:12px;"></div>
+  </section>
+</main>
+
+<script>
+  window.WILLOW_CFG = {
+    url: 'https://seolktqxdxstwqdiqzke.supabase.co',
+    anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlb2xrdHF4ZHhzdHdxZGlxemtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNjc0MjAsImV4cCI6MjA3MDk0MzQyMH0.Qt6wLLfR1QxbYGpq42t1uwpy5kDdqb_LN5-JA89Fj-U'
+  };
+</script>
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+  const { url, anon } = window.WILLOW_CFG;
+  window.__supa = window.__supa || createClient(url, anon);
+
+  const supa = window.__supa;
+  const { data: { session } } = await supa.auth.getSession();
+  if (!session?.user) {
+    location.href = new URL('auth.html', location.href).href;
+  } else {
+    window.currentUserId = session.user.id;
+    window.currentUserEmail = session.user.email;
+    const nav = document.querySelector('nav .row:last-child');
+    if (nav) {
+      const badge = document.createElement('span');
+      badge.className = 'pill';
+      badge.textContent = session.user.email || session.user.id.slice(0,8);
+      nav.appendChild(badge);
+      const out = document.createElement('button');
+      out.className = 'btn';
+      out.textContent = 'Sign out';
+      out.onclick = async ()=>{
+        try { await (window.pushUserTagStats?.()); } catch {}
+        await supa.auth.signOut();
+        location.href = 'auth.html';
+      };
+      nav.appendChild(out);
+    }
+    try { await (window.pushUserTagStats?.()); } catch {}
+  }
+</script>
+
+<script type="module">
+(function(){
+  async function loadTransformers() {
+    const urls = [
+      'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js',
+      'https://unpkg.com/@xenova/transformers@2.17.2/dist/transformers.min.js',
+      'https://esm.sh/@xenova/transformers@2.17.2'
+    ];
+    for (const url of urls) {
+      try { const m = await import(url); console.log('[Willow] transformers from', url); return m; }
+      catch(e){ console.warn('[Willow] failed', url, e); }
+    }
+    throw new Error('Failed to load @xenova/transformers.');
+  }
+
+  (async () => {
+    try {
+      const { pipeline, env } = await loadTransformers();
+      env.useBrowserCache = true; env.allowLocalModels = false;
+      const EMBED_MODEL = 'Xenova/all-MiniLM-L6-v2';
+      let embedder = null;
+      async function ensureEmbedder(){
+        if (embedder) return embedder;
+        const msg=document.getElementById('agentMsg'); if(msg) msg.textContent='Downloading embedding model… (one-time)';
+        embedder = await pipeline('feature-extraction', EMBED_MODEL, { quantized:true });
+        if(msg) msg.textContent='Model ready.'; return embedder;
+      }
+      window.__willow_transformers = { pipeline, env, ensureEmbedder };
+      window.dispatchEvent(new Event('willow-transformers-ready'));
+    } catch (err) {
+      console.error('[Willow] transformers loader failed:', err);
+      window.__willow_transformers = null;
+      window.dispatchEvent(new Event('willow-transformers-ready'));
+    }
+  })();
+})();
+</script>
+
+<script type="module">
+(function(){
+  function defineAgents(){
+    const api = window.__willow_transformers;
+    if (!api) { console.error('[Willow] transformers not available'); return; }
+    const { ensureEmbedder } = api;
+
+    function toVector(feat){
+      const data=feat.data||feat.tensor?.data||feat; const dim=Array.isArray(feat.dims)?feat.dims.at(-1):feat[0].length;
+      const rows=data.length/dim; const out=new Float32Array(dim);
+      for(let r=0;r<rows;r++){const base=r*dim; for(let c=0;c<dim;c++) out[c]+=data[base+c]}
+      for(let c=0;c<dim;c++) out[c]/=rows; let n=0; for(let c=0;c<dim;c++) n+=out[c]*out[c]; n=Math.sqrt(n)||1;
+      for(let c=0;c++) out[c]/=n; return out;
+    }
+    function cosine(a,b){ let s=0,na=0,nb=0; for(let i=0;i<a.length;i++){s+=a[i]*b[i];na+=a[i]*a[i];nb+=b[i]*b[i]} return s/(Math.sqrt(na)*Math.sqrt(nb)||1) }
+
+    const BS_SEED_KEY = "willow_blindspot_seeds";
+    function bsSeedCounts(){ try{ return JSON.parse(localStorage.getItem(BS_SEED_KEY)||"{}"); } catch { return {}; } }
+    function bsSeedBump(tag){ const m=bsSeedCounts(); m[tag]=(m[tag]||0)+1; localStorage.setItem(BS_SEED_KEY, JSON.stringify(m)); }
+    const ORTHO_SEEDS = [
+      { tag:"demographics", title:"Orthogonal: Demographic pressure", hint:"aging, migration, labor share, dependency ratios" },
+      { tag:"geopolitics", title:"Orthogonal: Geopolitical channel", hint:"sanctions, trade fragmentation, defense outlays" },
+      { tag:"energy", title:"Orthogonal: Energy & commodities", hint:"price shocks, supply elasticity, passthrough" },
+      { tag:"plumbing", title:"Orthogonal: Market plumbing", hint:"collateral chains, settlement frictions, fails" },
+      { tag:"tech", title:"Orthogonal: Tech infra & data", hint:"cloud spend, outages, automation, inference costs" },
+      { tag:"regulation", title:"Orthogonal: Legal/regulatory", hint:"capital rules, reporting, enforcement lags" },
+      { tag:"climate", title:"Orthogonal: Climate & weather", hint:"physical risk, transition paths, insurance" },
+      { tag:"housing", title:"Orthogonal: Housing dynamics", hint:"construction pipeline, rents, land use" }
+    ];
+    function analyzeStyle(t){ t=(t||'').trim(); const words=t.split(/\s+/).filter(Boolean);
+      const avg = words.length ? Math.round(words.join(' ').length / Math.max(1, t.split(/[.!?]+/).filter(Boolean).length)) : 80;
+      const short=avg<120, first=/\b(I|we|my|our|I'm|we're)\b/i.test(t), bullets=/^\s*[-*•]/m.test(t);
+      return {short, firstPerson:first, bullets};
+    }
+    function chooseSeed(note){
+      const text=(note.title+' '+note.content).toLowerCase(); const counts=bsSeedCounts();
+      const scored=ORTHO_SEEDS.map(s=>{const overlap=text.includes(s.tag)?1:0; const used=counts[s.tag]||0; return {s,score:(1-overlap)*10-used}}).sort((a,b)=>b.score-a.score);
+      const pick=scored[0]?.s||ORTHO_SEEDS[0]; bsSeedBump(pick.tag); return pick;
+    }
+
+    window.WillowLocalAgents = {
+      preload: ensureEmbedder,
+      async interconnectedness(note, notes){
+        const others=(notes||[]).filter(n=>n.id!==note.id);
+        if(!others.length) return {links:[],proposed_notes:[],feedback:"No other notes yet."};
+        try{
+          const e=await ensureEmbedder();
+          const q=toVector(await e(note.content,{pooling:'mean',normalize:false}));
+          const vecs=await Promise.all(others.map(n=>e(n.content,{pooling:'mean',normalize:false}).then(toVector)));
+          const A=new Set((note.tags||[]));
+          const results=others.map((n,i)=>{
+            const sim=cosine(q,vecs[i]), sim01=(sim+1)/2;
+            const B=new Set(n.tags||[]); const inter=[...A].filter(x=>B.has(x)).length; const uni=new Set([...A,...B]).size||1; const jacc=inter/uni;
+            const score=0.7*sim01+0.3*jacc; const type=inter>0?'thematic':'related';
+            return {from:note.id,to:n.id,type,confidence:+score.toFixed(3)};
+          }).sort((a,b)=>b.confidence-a.confidence);
+          return {links:results,proposed_notes:[],feedback:"Semantic similarity + tag overlap."};
+        }catch(err){
+          const overlap=(a=[],b=[])=>a.filter(t=>b.includes(t)).length;
+          const ranked=others.map(n=>({n,score:overlap(note.tags,n.tags)})).sort((x,y)=>y.score-x.score);
+          const links=ranked.filter(r=>r.score>0).map(r=>({from:note.id,to:r.n.id,type:'thematic',confidence:Math.min(0.95,0.6+r.score*0.1)}));
+          return {links,proposed_notes:[],feedback:"Heuristic (tags only)."};
+        }
+      },
+      async blind_spot(note){
+        const style=analyzeStyle(note.content); const seed=chooseSeed(note); const who=style.firstPerson?'I':'We';
+        const topic=(note.title||'this topic').toLowerCase();
+        const body= style.bullets
+          ? `- Hypothesis: ${seed.tag} materially shapes ${topic} through second-order channels.\n- Channels: incentives, balance-sheet transmission, timing.\n- Evidence: ${seed.hint}.\n- What would falsify?`
+          : `${who} suspect ${seed.tag} materially shapes ${topic} via second-order channels. Consider evidence via ${seed.hint}. What would falsify this?`;
+        return { links:[], proposed_notes:[{ title:seed.title, content:body, tags:["blind-spot",seed.tag] }], feedback:"Blind-spot note (new path candidate)." };
+      },
+      async historian(note){
+        const text=(note.title+' '+note.content).toLowerCase();
+        const analogs=[
+          {k:/bank|liquidity|run|deposit|ccp|repo/, ex:"the 1907 Knickerbocker panic and the 2008 GFC liquidity spirals"},
+          {k:/debt|treasury|sovereign|fiscal/, ex:"the 1980s Latin-American debt crisis and the 2011 US debt-ceiling standoffs"},
+          {k:/inflation|prices|cpi|wage/, ex:"the 1970s inflation regime shifts"},
+          {k:/housing|mortgage|real estate/, ex:"the 2006–08 US housing cycle"},
+          {k:/tech|startup|venture|platform/, ex:"the late-1990s dot-com buildout"},
+          {k:/energy|oil|gas|commodity/, ex:"the 1973–79 oil shocks"},
+        ];
+        const match=analogs.find(a=>a.k.test(text))?.ex || "the 1998 LTCM episode and the 2020 ‘dash for cash’";
+        const body=`This reminds me of ${match}. Similarities include leverage and nonlinear dynamics; differences include market structure and policy tools.`;
+        return { links:[], proposed_notes:[{ title:"Historian: analogs to study", content:body, tags:["analogy","monitoring"] }], feedback:"Historian preview uses ‘This reminds me of …’." };
+      }
+    };
+
+    window.dispatchEvent(new Event('willow-agents-ready'));
+    document.getElementById('preloadModels')?.addEventListener('click', async ()=>{
+      const m = window.__willow_transformers; if(!m){ document.getElementById('agentMsg').textContent='Loading library…'; return; }
+      await m.ensureEmbedder(); const el=document.getElementById('agentMsg'); if(el){ el.textContent='Model cached.'; setTimeout(()=>el.textContent='',1500); }
+    });
+  }
+  if (window.__willow_transformers) defineAgents();
+  else window.addEventListener('willow-transformers-ready', defineAgents, { once:true });
+})();
+</script>
+
+<!-- Tag stats helpers -->
+<script>
+function notesForCurrentUser() {
+  const all = (function(){ try { return JSON.parse(localStorage.getItem('willow_notes')||'[]'); } catch { return []; } })();
+  const uid = window.currentUserId;
+  const anyHasUser = all.some(n => 'userId' in n);
+  if (!uid) return all;
+  if (!anyHasUser) return all;
+  return all.filter(n => n.userId === uid);
+}
+function computeTagStats() {
+  const notes = notesForCurrentUser();
+  const counts = new Map();
+  for (const n of notes) for (const t of (n.tags || [])) {
+    counts.set(t, (counts.get(t) || 0) + 1);
+  }
+  const entries = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
+  const total = notes.length;
+  if (entries.length === 0) return { most: [], least: [], total };
+  const max = entries[0][1];
+  const min = entries[entries.length - 1][1];
+  const most  = entries.filter(([_, c]) => c === max).map(([tag]) => tag);
+  const least = entries.filter(([_, c]) => c === min).map(([tag]) => tag);
+  return { most, least, total };
+}
+window.pushUserTagStats = async function pushUserTagStats() {
+  try {
+    const sb = window.__supa;
+    const uid = window.currentUserId;
+    if (!sb || !uid) return;
+    const { most, least, total } = computeTagStats();
+    const row = { user_id: uid, most_tags: most, least_tags: least, notes_count: total, updated_at: new Date().toISOString() };
+    await sb.from('user_tag_stats').upsert(row, { onConflict: 'user_id' });
+    window.dispatchEvent(new Event('willow-ready-stats'));
+  } catch (e) {
+    console.warn('[Willow] tag stats push failed:', e);
+  }
+};
+</script>
+
+<script>
+  const LS_NOTES='willow_notes', LS_LINKS='willow_links';
+  const loadNotes=()=>{try{return JSON.parse(localStorage.getItem(LS_NOTES)||'[]')}catch{return[]}};
+  const saveNotes=a=>localStorage.setItem(LS_NOTES,JSON.stringify(a));
+  const loadLinks=()=>{try{return JSON.parse(localStorage.getItem(LS_LINKS)||'[]')}catch{return[]}};
+  const saveLinks=a=>localStorage.setItem(LS_LINKS,JSON.stringify(a));
+
+  const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+  const parseTags=s=>(s||'').split(',').map(t=>t.trim().toLowerCase()).filter(Boolean);
+  const escapeHtml=s=>String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+  const now=()=>new Date().toISOString();
+  const showMsg=(t,ok=true)=>{const el=$('#saveMsg'); el.textContent=t; el.className='muted '+(ok?'ok':'err'); setTimeout(()=>{el.textContent='';el.className='muted'},2200)};
+  const agentMsg=t=>{const el=$('#agentMsg'); el.textContent=t; setTimeout(()=>{el.textContent=''},3000)};
+  const pad=n=>n.toString().padStart(2,'0');
+  function newUID(){ const d=new Date(); const id=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`; let cand=id,i=0; const ids=new Set(loadNotes().map(n=>n.id)); while(ids.has(cand)) cand=id+'-'+(++i); return cand; }
+
+  const isAlpha=s=>/^[a-z]+$/.test(s), isNum=s=>/^\d+$/.test(s);
+  function splitNum(num){ if(!num) return null; const s=num.toLowerCase(); const m0=s.match(/^\d+/); if(!m0) return null; const parts=[m0[0]]; let i=m0[0].length; while(i<s.length){ const a=s.slice(i).match(/^[a-z]+/); if(a){parts.push(a[0]); i+=a[0].length; continue} const n=s.slice(i).match(/^\d+/); if(n){parts.push(n[0]); i+=n[0].length; continue} return null; } return parts; }
+  const joinParts=p=>p.join('');
+  function siblingsLastSegs(prefix,depth){ return loadNotes().map(n=>splitNum(n.num)).filter(p=>p&&p.length===depth&&joinParts(p.slice(0,depth-1))===prefix).map(p=>p[depth-1]); }
+  function childrenLastSegs(prefix,depth){ return loadNotes().map(n=>splitNum(n.num)).filter(p=>p&&p.length===depth+1&&joinParts(p.slice(0,depth))===prefix).map(p=>p[depth]); }
+  const alphaToNum=s=>{let n=0; for(const ch of s){n=n*26+(ch.charCodeAt(0)-96)} return n}, numToAlpha=n=>{let s=''; while(n>0){const r=(n-1)%26; s=String.fromCharCode(97+r)+s; n=Math.floor((n-1)/26)} return s};
+  function nextAlpha(segs){ if(!segs.length) return 'a'; let m=0; segs.forEach(x=>{ if(isAlpha(x)) m=Math.max(m,alphaToNum(x)); }); return numToAlpha(m+1); }
+  function nextNumeric(segs){ if(!segs.length) return '1'; let m=0; segs.forEach(x=>{ if(isNum(x)) m=Math.max(m,parseInt(x,10)); }); return String(m+1); }
+  function suggestChild(num){ const parts=splitNum(num); if(!parts) return ''; const prefix=joinParts(parts); const last=parts[parts.length-1]; const segs=childrenLastSegs(prefix,parts.length); const nxt=isNum(last)?nextAlpha(segs):nextNumeric(segs); return prefix+nxt; }
+  function suggestSibling(num){ const p=splitNum(num); if(!p) return ''; const prefix=joinParts(p.slice(0,-1)); const last=p[p.length-1]; const segs=siblingsLastSegs(prefix,p.length); const nxt=isAlpha(last)?nextAlpha(segs):nextNumeric(segs); return prefix+nxt; }
+  function nextRoot(){ const roots=loadNotes().map(n=>n.num).filter(p=>p&&/^\d+$/.test(p)).map(p=>parseInt(p,10)); const max=roots.length?Math.max(...roots):0; return String(max+1); }
+
+  (function migrate(){ const notes=loadNotes(); let changed=false; notes.forEach(n=>{ if(!n.id){n.id=newUID();changed=true;} }); if(changed) saveNotes(notes); })();
+
+  let loadedId=null, placeMode=false, pendingAction=null, pendingFields=null;
+
+  function refreshRecent(){
+    const ul=$('#recentList');
+    const items=loadNotes().sort((a,b)=>(a.updatedAt||a.createdAt||'')>(b.updatedAt||b.createdAt||'')?-1:1).slice(0,14);
+    ul.innerHTML = items.length
+      ? items.map(n=>`<li class="recent-item"><button class="linkbtn note-link" data-id="${escapeHtml(n.id)}"><strong>${escapeHtml(n.num||'—')}</strong> — ${escapeHtml(n.title)}</button> <span class="muted">(${n.published?'published':'draft'})</span></li>`).join('')
+      : '<li class="muted">No notes yet.</li>';
+    if(placeMode) $$('#recentList .recent-item').forEach(li=>li.classList.add('placeable'));
+  }
+
+  function gatherFields(){ return { title:$('[name="title"]').value.trim(), content:$('[name="content"]').value.trim(), tags:parseTags($('[name="tags"]').value), source:$('[name="source"]').value.trim() }; }
+  function validateFields(f){ if(!f.title||!f.content) throw new Error('Title and Content are required.'); }
+  function validateNumUnique(num, keepId){ const clash=loadNotes().some(n=>n.num===num && n.id!==keepId); if(clash) throw new Error(`Number ${num} already exists.`); }
+  function upsertNote(note){ const list=loadNotes(); const i=list.findIndex(n=>n.id===note.id); if(i>=0) list[i]=note; else list.push(note); saveNotes(list); }
+  function loadNoteIntoForm(id){ const n=loadNotes().find(x=>x.id===id); if(!n){showMsg('Note not found',false);return;} loadedId=n.id; $('#numInput').value=n.num||''; $('#hiddenKeepId').value='1'; $('[name="title"]').value=n.title||''; $('[name="content"]').value=n.content||''; $('[name="tags"]').value=(n.tags||[]).join(', '); $('[name="source"]').value=n.source||''; location.hash='#notetaker'; showMsg(`Loaded ${n.num}`,true); }
+  function clearForm(){ $('#numInput').value=''; $('#hiddenKeepId').value='0'; $('[name="title"]').value=''; $('[name="content"]').value=''; $('[name="tags"]').value=''; $('[name="source"]').value=''; loadedId=null; }
+
+  function togglePlacement(on){ placeMode=on; document.body.classList.toggle('place-mode',on); $$('#recentList .recent-item').forEach(li=>li.classList.toggle('placeable',on)); $('#newRootTarget').style.display=on?'block':'none'; $('#nextRootPreview').textContent=on?nextRoot():''; $('#placeBanner').style.display=on?'flex':'none'; }
+  function beginPlacement(action, fields){ pendingAction=action; pendingFields=fields; togglePlacement(true); }
+  function finishPlacementWith(num){ $('#numInput').value=num; togglePlacement(false); if(pendingAction==='publish') finalizePublish(pendingFields,num); else if(pendingAction==='draft') finalizeDraft(pendingFields,num); pendingAction=null; pendingFields=null; }
+
+  async function finalizeDraft(fields, num){
+    try{
+      validateFields(fields); validateNumUnique(num, $('#hiddenKeepId').value==='1'?loadedId:null);
+      const id = ($('#hiddenKeepId').value==='1' && loadedId) ? loadedId : newUID();
+      const note={ id, userId: window.currentUserId || null, num, ...fields, createdAt:now(), updatedAt:now(), published:false };
+      upsertNote(note); loadedId=note.id; $('#hiddenKeepId').value='1';
+      showMsg(`Draft saved (${note.num})`); refreshRecent(); renderGraph();
+      await (window.pushUserTagStats?.());
+    }catch(e){ showMsg(e.message||'Failed to save',false); }
+  }
+  async function finalizePublish(fields, num){
+    try{
+      validateFields(fields); validateNumUnique(num, $('#hiddenKeepId').value==='1'?loadedId:null);
+      const id = ($('#hiddenKeepId').value==='1' && loadedId) ? loadedId : newUID();
+      const note={ id, userId: window.currentUserId || null, num, ...fields, createdAt:now(), updatedAt:now(), published:true };
+      upsertNote(note); loadedId=note.id; $('#hiddenKeepId').value='1';
+      showMsg(`Published ✓ (${note.num})`); refreshRecent(); renderGraph();
+      await (window.pushUserTagStats?.());
+
+      if (!window.WillowLocalAgents) {
+        agentMsg('Preparing local agents…');
+        await new Promise(res=>window.addEventListener('willow-agents-ready', res, { once:true }));
+      }
+      await runAgentsForNote(note, ["interconnectedness","historian","blind_spot"]);
+      location.hash='#graph'; setTimeout(()=>pulseNode(note.id),90);
+    }catch(e){ showMsg(e.message||'Failed to publish',false); }
+  }
+
+  async function draftSave(){ const num=$('#numInput').value.trim(), f=gatherFields(); try{ validateFields(f); if(!num){ beginPlacement('draft',f); return; } await finalizeDraft(f,num); } catch(e){ showMsg(e.message||'Failed to save',false); } }
+  async function publish(e){ e.preventDefault(); const num=$('#numInput').value.trim(), f=gatherFields(); try{ validateFields(f); if(!num){ beginPlacement('publish',f); return; } await finalizePublish(f,num); } catch(err){ showMsg(err.message||'Failed to publish',false); } }
+  function deleteLoaded(){ if(!loadedId){ showMsg('No loaded note to delete',false); return; } if(!confirm('Delete this note?')) return; saveNotes(loadNotes().filter(n=>n.id!==loadedId)); saveLinks(loadLinks().filter(e=> e.from!==loadedId && e.to!==loadedId)); clearForm(); refreshRecent(); renderGraph(); showMsg('Deleted',true); window.pushUserTagStats?.(); }
+
+  $('#recentList').addEventListener('click',e=>{
+    const btn=e.target.closest('.note-link'); if(!btn) return;
+    const id=btn.getAttribute('data-id');
+    if(placeMode){ const n=loadNotes().find(x=>x.id===id); if(!n) return; const sug=suggestChild(n.num)||(isNum(n.num)?n.num+'a':n.num+'1'); finishPlacementWith(sug); return; }
+    loadNoteIntoForm(id);
+  });
+  $('#placeNewRoot').addEventListener('click',()=>finishPlacementWith(nextRoot()));
+
+  const agentSel=new Set(["interconnectedness","historian","blind_spot"]);
+  $('#agentToggles').addEventListener('click',e=>{ const b=e.target.closest('[data-agent]'); if(!b) return; const id=b.getAttribute('data-agent'); if(agentSel.has(id)){agentSel.delete(id); b.classList.remove('agent-on');} else {agentSel.add(id); b.classList.add('agent-on');} });
+  $('#runAgents').addEventListener('click',async ()=>{
+    if (!window.WillowLocalAgents) {
+      agentMsg('Preparing local agents…');
+      await new Promise(res=>window.addEventListener('willow-agents-ready', res, { once:true }));
+    }
+    runAgentsForCurrent();
+  });
+
+  function currentNoteForAgents(){ const id=loadedId||'temp'; const num=$('#numInput').value.trim()||'temp'; const f=gatherFields(); return { id, num, ...f }; }
+  async function runAgentsForCurrent(){ const note=currentNoteForAgents(); if(!note.title||!note.content){agentMsg('Fill title and content first');return;} await runAgentsForNote(note, Array.from(agentSel)); }
+
+  function stripHistorianLead(t){ return t.replace(/^\s*([-*•]\s*)?This reminds me of\s+/i,(m,bullet)=>bullet?bullet:''); }
+  async function runAgentsForNote(note, agents){
+    if (!window.WillowLocalAgents) return;
+    const saved=loadNotes().find(n=>n.id===note.id);
+    const context=saved||null;
+    const notes=loadNotes().filter(n=>!context || n.id!==context.id);
+    const out={}; const box=$('#agentResults'); box.innerHTML=''; agentMsg('Running locally…');
+
+    if(agents.includes('interconnectedness')) out.interconnectedness=await window.WillowLocalAgents.interconnectedness(context||note, notes);
+    if(agents.includes('historian')) out.historian=await window.WillowLocalAgents.historian(context||note, notes);
+    if(agents.includes('blind_spot')) out.blind_spot=await window.WillowLocalAgents.blind_spot(context||note, notes);
+
+    agentMsg('Done'); renderAgentResults(out, context);
+  }
+
+  function labelForId(id){ const n=loadNotes().find(x=>x.id===id); return n ? (n.num||'—') : id.slice(0,8); }
+
+  function renderAgentResults(agentsOut, context){
+    const box=$('#agentResults'); const proposed=[], sections=[];
+    let linkCandidate=null;
+    const MIN_CONF = 0.58;
+    const existing = new Set(loadLinks().map(e=>`${e.from}>${e.to}|${e.type}`));
+    if(agentsOut.interconnectedness?.links?.length){
+      const dedup = agentsOut.interconnectedness.links.filter(l => !existing.has(`${l.from}>${l.to}|${l.type}`));
+      dedup.sort((a,b)=>(b.confidence??0)-(a.confidence??0));
+      if(dedup.length && (dedup[0].confidence??0) >= MIN_CONF){ linkCandidate = dedup[0]; }
+    }
+    for(const k of Object.keys(agentsOut)){
+      const obj=agentsOut[k];
+      if(obj?.proposed_notes?.length) proposed.push(...obj.proposed_notes.map(p=>({...p,__agent:k})));
+      sections.push(`<div class="prop-card"><strong>${k}</strong>${obj?.feedback?`<div class="muted" style="margin-top:6px;">${escapeHtml(obj.feedback)}</div>`:''}</div>`);
+    }
+    if(linkCandidate){
+      sections.push(`<div class="prop-card" id="linkSuggestion"><strong>Top Link Suggestion</strong>
+        <div class="muted" style="margin-top:6px;">${escapeHtml(labelForId(linkCandidate.from))} → ${escapeHtml(labelForId(linkCandidate.to))} · ${escapeHtml(linkCandidate.type)} · ${(linkCandidate.confidence*100).toFixed(0)}%</div>
+        <div class="row" style="margin-top:6px;"><button class="btn primary" id="acceptTopLink">Accept</button></div></div>`);
+    } else {
+      sections.push(`<div class="prop-card"><strong>Top Link Suggestion</strong><div class="muted" style="margin-top:6px;">No strong link to suggest right now.</div></div>`);
+    }
+    if(proposed.length){
+      sections.push(`<div class="prop-card"><strong>Proposed Notes</strong>${
+        proposed.map((p,i)=>`<div class="prop-card"><div><strong>${escapeHtml(p.title||'Proposed')}</strong></div><div class="muted">${(p.tags||[]).join(', ')||'—'}</div><p style="margin-top:6px;">${escapeHtml(p.content||'')}</p><div class="row"><button class="btn primary" data-accept-prop="${i}">Accept (publish)</button><button class="btn" data-reject-prop="${i}">Reject</button></div></div>`).join('')}
+      </div>`);
+    }
+    box.innerHTML = sections.join('') || '<div class="muted">No outputs.</div>';
+    if(linkCandidate){ document.getElementById('acceptTopLink')?.addEventListener('click', ()=>{ acceptLinkSuggestion(linkCandidate); document.getElementById('linkSuggestion')?.remove(); }); }
+    const propArr=proposed.slice();
+    box.querySelectorAll('[data-accept-prop]').forEach(btn=>btn.addEventListener('click',()=>{ const idx=parseInt(btn.getAttribute('data-accept-prop'),10); acceptProposedNote(propArr[idx], context); btn.closest('.prop-card')?.remove(); }));
+    box.querySelectorAll('[data-reject-prop]').forEach(btn=>btn.addEventListener('click',ev=>ev.target.closest('.prop-card').remove()));
+  }
+  function acceptLinkSuggestion(e){
+    const edges=loadLinks();
+    if(!edges.some(x=>x.from===e.from&&x.to===e.to&&x.type===e.type)){
+      edges.push({from:e.from,to:e.to,type:e.type,confidence:e.confidence||0}); saveLinks(edges); renderGraph(); agentMsg('Link added');
+    } else { agentMsg('Link already exists'); }
+  }
+  function acceptProposedNote(p, context){
+    let num; const tags=p.tags||[];
+    if(tags.includes('blind-spot')) num = nextRoot();
+    else if(context) num = suggestChild(context.num) || (isNum(context.num)?context.num+'a':context.num+'1');
+    else num = nextRoot();
+    while(loadNotes().some(n=>n.num===num)) num = suggestSibling(num) || (/[a-z]$/.test(num)?num+'a':num+'1');
+    let content=p.content||''; if(tags.includes('analogy')) content = stripHistorianLead(content);
+    const note={ id:newUID(), userId: window.currentUserId || null, num, title:p.title||'Proposed', content, tags, source:'', createdAt:now(), updatedAt:now(), published:true };
+    upsertNote(note); refreshRecent(); renderGraph(); agentMsg(`Published proposed note as ${note.num}`); setTimeout(()=>pulseNode(note.id),90);
+    window.pushUserTagStats?.();
+  }
+
+  const svg=$('#kg'), vp=$('#vp'); const view={x:0,y:0,k:1};
+  function applyTransform(){ vp.setAttribute('transform',`translate(${view.x} ${view.y}) scale(${view.k})`); }
+  function resetView(){ view.x=0; view.y=0; view.k=1; applyTransform(); }
+  applyTransform();
+  svg.addEventListener('wheel', (e)=>{ e.preventDefault(); const rect=svg.getBoundingClientRect(); const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+    const ptX=(mx - view.x)/view.k, ptY=(my - view.y)/view.k; const delta=-Math.sign(e.deltaY)*0.12; const k=Math.min(5,Math.max(0.5, view.k*(1+delta)));
+    view.x = mx - ptX*k; view.y = my - ptY*k; view.k = k; applyTransform(); }, {passive:false});
+  let dragging=false,last={x:0,y:0};
+  svg.addEventListener('mousedown',(e)=>{dragging=true;last.x=e.clientX;last.y=e.clientY;});
+  window.addEventListener('mousemove',(e)=>{if(!dragging)return; const dx=e.clientX-last.x, dy=e.clientY-last.y; view.x+=dx; view.y+=dy; last.x=e.clientX; last.y=e.clientY; applyTransform();});
+  window.addEventListener('mouseup',()=>{dragging=false;});
+  svg.addEventListener('dblclick',()=> resetView());
+
+  function circleLayout(n,cx,cy,r){ if(n<=1)return[{x:cx,y:cy}]; const pts=[]; for(let i=0;i<n;i++){const a=(2*Math.PI*i)/n-Math.PI/2; pts.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)})} return pts; }
+  const shareTags=(a=[],b=[])=>a.some(t=>b.includes(t));
+  function renderGraph(){
+    const vpEl = vp; vpEl.innerHTML=''; const nodes=loadNotes().filter(n=>n.published), links=loadLinks();
+    document.getElementById('statNodes').textContent=String(nodes.length);
+    const idxById=new Map(nodes.map((n,i)=>[n.id,i])); const cx=400,cy=220,r=Math.min(320,180+Math.max(0,12-nodes.length)*8); const pts=circleLayout(nodes.length,cx,cy,r);
+    let tagEdges=0;
+    for(let i=0;i<nodes.length;i++){ for(let j=i+1;j<nodes.length;j++){ if(shareTags(nodes[i].tags,nodes[j].tags)){ const a=pts[i],b=pts[j]; vpEl.insertAdjacentHTML('beforeend',`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#cbd5e1"/>`); tagEdges++; } } }
+    document.getElementById('statEdges').textContent=String(tagEdges);
+    let linkEdges=0;
+    links.forEach(e=>{ const i=idxById.get(e.from), j=idxById.get(e.to); if(i==null||j==null) return; const a=pts[i],b=pts[j]; vpEl.insertAdjacentHTML('beforeend',`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#64748b" class="edge-dashed"/>`); linkEdges++; });
+    document.getElementById('statEdgesLinks').textContent=String(linkEdges);
+    if(nodes.length===0){ vpEl.insertAdjacentHTML('beforeend','<text x="400" y="210" text-anchor="middle">No published notes yet</text>'); svg.onclick=null; return; }
+    nodes.forEach((n,i)=>{ const p=pts[i]; const idAttr='node-'+n.id.replace(/[^a-zA-Z0-9_-]/g,'_'); const label=escapeHtml(n.num||'—');
+      vpEl.insertAdjacentHTML('beforeend',`<g id="${idAttr}" data-id="${escapeHtml(n.id)}"><circle cx="${p.x}" cy="${p.y}" r="12" fill="#6366f1"></circle><text x="${p.x}" y="${p.y+26}" text-anchor="middle">${label}</text><title>${n.num} — ${n.title}\nTags: ${(n.tags||[]).join(', ')||'—'}</title></g>`); });
+    svg.onclick=(e)=>{ let el=e.target; while(el && el!==svg && !(el.tagName && el.tagName.toLowerCase()==='g' && el.dataset && el.dataset.id)){ el=el.parentNode; }
+      if(!el||!el.dataset||!el.dataset.id) return; const id=el.dataset.id;
+      if(placeMode){ const n=loadNotes().find(x=>x.id===id); if(!n) return; const sug=suggestChild(n.num)||(isNum(n.num)?n.num+'a':n.num+'1'); finishPlacementWith(sug); return; }
+      loadNoteIntoForm(id);
+    };
+  }
+  function pulseNode(id){ const domId='node-'+id.replace(/[^a-zA-Z0-9_-]/g,'_'); const g=document.getElementById(domId); if(!g) return; const c=g.querySelector('circle'); c.style.transition='transform .25s ease-out'; c.style.transformOrigin='center'; c.style.transform='scale(1.25)'; setTimeout(()=>c.style.transform='scale(1)',250); }
+
+  document.getElementById('newNoteBtn').onclick=()=>{ location.hash='#notetaker'; clearForm(); $('[name="title"]').focus(); };
+  document.getElementById('saveDraft').onclick=draftSave;
+  document.getElementById('noteForm').onsubmit=publish;
+  document.getElementById('deleteNote').onclick=deleteLoaded;
+  document.getElementById('clearAll').onclick=()=>{ localStorage.removeItem(LS_NOTES); localStorage.removeItem(LS_LINKS); localStorage.removeItem('willow_blindspot_seeds'); clearForm(); refreshRecent(); renderGraph(); window.pushUserTagStats?.(); };
+  document.getElementById('rebuild').onclick=renderGraph;
+
+  refreshRecent(); renderGraph();
+</script>
+
+<script>
+const LS_FC = 'willow_forecasts';
+const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
+const clamp = (x,a=0.001,b=0.999) => Math.min(b, Math.max(a, x));
+const logit = (p) => Math.log(p/(1-p));
+const invLogit = (L) => 1/(1+Math.exp(-L));
+function aggregateLogOdds(updates, now=Date.now(), halfLifeDays=14, extremize=1.3) {
+  if (!updates?.length) return null;
+  const HL = halfLifeDays * 864e5; let num=0, den=0;
+  for (const u of updates) { const t = (typeof u.t === 'string') ? new Date(u.t).getTime() : +u.t; const w = Math.exp(-(now - t)/HL); const L = logit(clamp(u.p)); num += w * L; den += w; }
+  if (den === 0) return null; return invLogit((num/den) * extremize);
+}
+function renderSparkline(values, w=120, h=28) {
+  if (!values?.length) return `<svg width="${w}" height="${h}"></svg>`;
+  const min=0, max=1, step=w/(values.length-1||1);
+  const pts = values.map((p,i)=>`${(i*step).toFixed(1)},${(h - (p-min)/(max-min)*h).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="#4f46e5" stroke-width="2" points="${pts}"/></svg>`;
+}
+function renderForecastCardRO(f){
+  const values = (f.updates||[]).map(u=>u.p);
+  const pStar = aggregateLogOdds(f.updates||[]) ?? (values.length ? values.at(-1) : 0.5);
+  const pct = Math.round((pStar||0.5)*100);
+  const status = f.status || 'open';
+  return `
+  <div class="card" data-fid="${f.id}">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <strong>${f.title}</strong>
+        <div class="muted">${f.resolution_criteria||''}</div>
+        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}${f.resolution?.outcome?`, outcome: ${f.resolution.outcome}`:''}</div>
+        ${status==='resolved' && f.metrics?.brier!=null ? `<div class="pill">Brier: ${(+f.metrics.brier).toFixed(3)}</div>`:''}
+      </div>
+      <div style="text-align:right;">
+        <div class="pill" style="display:inline-block;margin-bottom:6px;">Agg: ${pct}%</div>
+        ${renderSparkline(values)}
+      </div>
+    </div>
+  </div>`;
+}
+function refreshForecastListRO(){
+  const box = document.getElementById('fcList');
+  const arr = loadForecasts().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1));
+  box.innerHTML = arr.length ? arr.map(renderForecastCardRO).join('') : '<div class="muted">No forecasts yet.</div>';
+}
+refreshForecastListRO();
+</script>
+<script type="module">
+  const sb = window.__supa;
+  async function pullForecastsFromServer(){
+    if(!sb) return;
+    const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
+    if(error){ console.warn('[Willow] pull error', error); return; }
+    const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
+    const map=new Map(local.map(f=>[f.id,f]));
+    for(const r of data){ const l=map.get(r.id); if(!l || new Date(r.updated_at||0) > new Date(l.updated_at||0)) map.set(r.id, r); }
+    localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
+    try { if(typeof refreshForecastListRO==='function') refreshForecastListRO(); } catch {}
+  }
+  function subscribeRealtime(){
+    if(!sb) return;
+    sb.channel('willow-forecasts-ro')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecasts' }, (payload) => {
+        const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
+        const map=new Map(local.map(f=>[f.id,f]));
+        const row = payload.new || payload.old;
+        if(payload.eventType==='DELETE'){ map.delete(row.id); }
+        else { const cur=map.get(row.id); if(!cur || new Date(row.updated_at||0) >= new Date(cur.updated_at||0)) map.set(row.id, row); }
+        localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
+        try { if(typeof refreshForecastListRO==='function') refreshForecastListRO(); } catch {}
+      })
+      .subscribe();
+  }
+  await pullForecastsFromServer();
+  subscribeRealtime();
+</script>
+</body>
+</html>

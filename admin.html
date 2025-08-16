@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Willow — Admin</title>
+<style>
+  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --bg:#f8fafc; --danger:#ef4444; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  .wrap{max-width:1000px;margin:0 auto;padding:20px 16px 60px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input,textarea,button{font:inherit}
+  input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px}
+  textarea{resize:vertical;min-height:90px}
+  button{border:1px solid var(--line);background:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
+  .primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .danger{border-color:var(--danger);color:#ef4444}
+  .pill{font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:#64748b}
+  .muted{color:#64748b;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row" style="justify-content:space-between;">
+    <div class="row" style="gap:10px;"><div style="font-size:22px;">🌿</div><strong>Willow Admin</strong></div>
+    <a href="index.html">Back to app</a>
+  </div>
+
+  <div id="gate" class="card" style="margin-top:12px;">
+    <strong>Admin access</strong>
+    <p class="muted">Enter admin password to manage forecasts.</p>
+    <div class="row">
+      <input id="pw" type="password" placeholder="admin">
+      <button id="go" class="primary">Enter</button>
+      <span id="msg" class="muted"></span>
+    </div>
+  </div>
+
+  <div id="panel" style="display:none;">
+    <div class="card" style="margin-top:12px;">
+      <div class="row">
+        <input id="fcTitle" placeholder="Question (binary)" style="flex:1">
+        <input id="fcClose" type="date" title="Close date">
+        <button class="primary" id="fcCreate">New forecast</button>
+      </div>
+      <textarea id="fcCriteria" placeholder="Resolution criteria (who/what/when/how)"></textarea>
+      <div class="muted" id="fcSyncMsg" style="margin-top:6px;"></div>
+    </div>
+    <div id="fcList" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<script>
+  window.WILLOW_CFG = window.WILLOW_CFG || {
+    url: 'https://seolktqxdxstwqdiqzke.supabase.co',
+    anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlb2xrdHF4ZHhzdHdxZGlxemtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNjc0MjAsImV4cCI6MjA3MDk0MzQyMH0.Qt6wLLfR1QxbYGpq42t1uwpy5kDdqb_LN5-JA89Fj-U'
+  };
+</script>
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+  const { url, anon } = window.WILLOW_CFG;
+  window.__supa = window.__supa || createClient(url, anon);
+</script>
+
+<script>
+  const gate = document.getElementById('gate');
+  const panel = document.getElementById('panel');
+  const gateMsgEl = document.getElementById('msg');
+
+  function openPanel(){
+    gate.style.display='none';
+    panel.style.display='block';
+    localStorage.setItem('willow_admin_ok','1');
+  }
+
+  document.getElementById('go').addEventListener('click', ()=>{
+    const v = (document.getElementById('pw').value||'').trim();
+    if (v === 'admin') {
+      openPanel();
+    } else {
+      gateMsgEl.textContent='Wrong password';
+      gateMsgEl.className='pill';
+    }
+  });
+
+  if (localStorage.getItem('willow_admin_ok') === '1') openPanel();
+</script>
+
+<script>
+const LS_FC = 'willow_forecasts';
+const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
+const saveForecasts = (arr) => localStorage.setItem(LS_FC, JSON.stringify(arr));
+const clamp = (x,a=0.001,b=0.999) => Math.min(b, Math.max(a, x));
+const logit = (p) => Math.log(p/(1-p));
+const invLogit = (L) => 1/(1+Math.exp(-L));
+function aggregateLogOdds(updates, now=Date.now(), halfLifeDays=14, extremize=1.3) {
+  if (!updates?.length) return null;
+  const HL = halfLifeDays * 864e5; let num=0, den=0;
+  for (const u of updates) {
+    const t = (typeof u.t === 'string') ? new Date(u.t).getTime() : +u.t;
+    const w = Math.exp(-(now - t)/HL);
+    const L = logit(clamp(u.p));
+    num += w * L; den += w;
+  }
+  if (den === 0) return null;
+  return invLogit((num/den) * extremize);
+}
+function brier(p, outcomeYes) { const y = outcomeYes ? 1 : 0; return (clamp(p) - y) ** 2; }
+function newForecastId() { const d=new Date(); return `F-${d.getFullYear()}${(d.getMonth()+1+'').padStart(2,'0')}${(d.getDate()+'').padStart(2,'0')}-${Math.random().toString(36).slice(2,8)}`; }
+function upsertForecastLocal(f){ const all=loadForecasts(); const i=all.findIndex(x=>x.id===f.id); if(i>=0) all[i]=f; else all.push(f); saveForecasts(all); return f; }
+function renderSparkline(values, w=120, h=28) {
+  if (!values?.length) return `<svg width="${w}" height="${h}"></svg>`;
+  const min=0, max=1, step=w/(values.length-1||1);
+  const pts = values.map((p,i)=>`${(i*step).toFixed(1)},${(h - (p-min)/(max-min)*h).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="#4f46e5" stroke-width="2" points="${pts}"/></svg>`;
+}
+function renderForecastCard(f){
+  const values = (f.updates||[]).map(u=>u.p);
+  const pStar = aggregateLogOdds(f.updates||[]) ?? (values.length ? values.at(-1) : 0.5);
+  const pct = Math.round((pStar||0.5)*100);
+  const open = f.status !== 'resolved';
+  const closed = f.status === 'closed';
+  const status = f.status || 'open';
+  return `
+  <div class="card" data-fid="${f.id}">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <strong>${f.title}</strong>
+        <div class="muted">${f.resolution_criteria||''}</div>
+        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}</div>
+      </div>
+      <div>${renderSparkline(values)}</div>
+    </div>
+    ${status === 'resolved' ? `
+      <div class="row" style="margin-top:6px;">
+        <span class="pill">Resolved: ${f.resolution?.outcome}</span>
+        <span class="pill">Brier: ${f.metrics?.brier?.toFixed(3) ?? '-'}</span>
+      </div>
+    ` : `
+      <div class="row" style="margin-top:10px;align-items:center;">
+        <input type="range" min="1" max="99" value="${pct}" class="fcProb" style="flex:1">
+        <span class="pill fcProbLabel" style="min-width:48px;text-align:center;">${pct}%</span>
+        <button class="btn" data-q="5">5%</button><button class="btn" data-q="10">10%</button>
+        <button class="btn" data-q="20">20%</button><button class="btn" data-q="40">40%</button>
+        <button class="btn" data-q="60">60%</button><button class="btn" data-q="80">80%</button>
+        <button class="btn" data-q="90">90%</button><button class="btn" data-q="95">95%</button>
+      </div>
+      <textarea class="fcWhy" placeholder="Rationale / links to notes…"></textarea>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn primary fcUpdate" ${closed?'disabled':''}>Update</button>
+        <button class="btn fcClose" ${closed?'disabled':''}>Close</button>
+        <button class="btn danger fcResolveYes" ${open?'':'disabled'}>Resolve YES</button>
+        <button class="btn danger fcResolveNo" ${open?'':'disabled'}>Resolve NO</button>
+      </div>
+    `}
+  </div>`;
+}
+function refreshForecastList(){
+  const box = document.getElementById('fcList');
+  const arr = loadForecasts().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1));
+  box.innerHTML = arr.length ? arr.map(renderForecastCard).join('') : '<div class="muted">No forecasts yet.</div>';
+
+  box.querySelectorAll('.card[data-fid]').forEach(card=>{
+    const id = card.getAttribute('data-fid');
+    const slider = card.querySelector('.fcProb');
+    const label  = card.querySelector('.fcProbLabel');
+    const why    = card.querySelector('.fcWhy');
+
+    if (slider && label) slider.addEventListener('input', ()=>label.textContent = slider.value + '%');
+    card.querySelectorAll('[data-q]').forEach(btn=>{
+      btn.addEventListener('click',()=>{ if(!slider||!label) return; slider.value=btn.getAttribute('data-q'); label.textContent=slider.value+'%'; });
+    });
+
+    card.querySelector('.fcUpdate')?.addEventListener('click', async ()=>{
+      const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
+      const p = (slider? Number(slider.value)/100 : 0.5);
+      const rationale = (why? why.value.trim() : '');
+      (f.updates ||= []).push({ t: new Date().toISOString(), p, rationale, by: 'admin' });
+      f.updated_at = new Date().toISOString();
+      upsertForecastLocal(f); await pushForecastToServer(f); refreshForecastList();
+    });
+
+    card.querySelector('.fcClose')?.addEventListener('click', async ()=>{
+      const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
+      f.status = 'closed'; f.updated_at = new Date().toISOString();
+      upsertForecastLocal(f); await pushForecastToServer(f); refreshForecastList();
+    });
+
+    const doResolve = async (outcomeYes) => {
+      const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
+      const pStar = aggregateLogOdds(f.updates||[]) ?? (f.updates?.length ? f.updates.at(-1).p : 0.5);
+      const score = brier(pStar, outcomeYes);
+      f.status = 'resolved';
+      f.resolution = { outcome: outcomeYes?'YES':'NO', t: new Date().toISOString(), comment: '' };
+      f.metrics = { brier: score };
+      f.updated_at = new Date().toISOString();
+      upsertForecastLocal(f); await pushForecastToServer(f); refreshForecastList();
+    };
+    card.querySelector('.fcResolveYes')?.addEventListener('click', ()=>doResolve(true));
+    card.querySelector('.fcResolveNo')?.addEventListener('click', ()=>doResolve(false));
+  });
+}
+document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
+  const title = document.getElementById('fcTitle').value.trim(); if (!title) return alert('Enter a question');
+  const crit = document.getElementById('fcCriteria').value.trim();
+  const close = document.getElementById('fcClose').value ? new Date(document.getElementById('fcClose').value).toISOString() : null;
+  const f = { id:newForecastId(), title, resolution_criteria:crit, closeAt:close, resolveBy:null, status:'open', tags:[], linkedNoteIds:[], updates:[], metrics:{}, resolution:null, updated_at:new Date().toISOString() };
+  upsertForecastLocal(f); await pushForecastToServer(f);
+  document.getElementById('fcTitle').value=''; document.getElementById('fcCriteria').value=''; document.getElementById('fcClose').value='';
+  refreshForecastList();
+});
+</script>
+
+<script type="module">
+  const sb = window.__supa;
+  const syncMsgEl = document.getElementById('fcSyncMsg');
+  const setSync = (t)=>{ if(syncMsgEl) syncMsgEl.textContent=t; };
+
+  async function pullForecastsFromServer(){
+    if(!sb) return;
+    const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
+    if(error){ console.warn('[Willow] pull error', error); setSync('Cloud sync: error.'); return; }
+    const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
+    const map=new Map(local.map(f=>[f.id,f]));
+    for(const r of data){ const l=map.get(r.id); if(!l || new Date(r.updated_at||0) > new Date(l.updated_at||0)) map.set(r.id, r); }
+    localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
+
+    setSync('Cloud sync: up to date.');
+    try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
+  }
+  window.pushForecastToServer = async function(f){
+    if(!sb) return;
+    try {
+      const { error } = await sb.from('forecasts').upsert(f, { onConflict: 'id' });
+      if(error){ console.warn('[Willow] upsert error', error); setSync('Cloud sync: upsert error.'); }
+      else setSync('Cloud sync: saved.');
+    } catch (e) { console.warn('[Willow] push failed', e); setSync('Cloud sync: offline.'); }
+  };
+  function subscribeRealtime(){
+    if(!sb) return;
+    sb.channel('willow-forecasts-admin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecasts' }, (payload) => {
+        const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
+        const map=new Map(local.map(f=>[f.id,f]));
+        const row = payload.new || payload.old;
+        if(payload.eventType==='DELETE'){ map.delete(row.id); }
+        else {
+          const cur=map.get(row.id);
+          if(!cur || new Date(row.updated_at||0) >= new Date(cur.updated_at||0)) map.set(row.id, row);
+        }
+        localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
+        try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
+      })
+      .subscribe();
+  }
+  await pullForecastsFromServer();
+  subscribeRealtime();
+</script>
+</body>
+</html>
