@@ -19,6 +19,7 @@
   .danger{border-color:var(--danger);color:#ef4444}
   .pill{font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:#64748b}
   .muted{color:#64748b;font-size:12px}
+  .prop-card{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px}
 </style>
 </head>
 <body>
@@ -28,6 +29,7 @@
     <a href="index.html">Back to app</a>
   </div>
 
+  <!-- Password gate -->
   <div id="gate" class="card" style="margin-top:12px;">
     <strong>Admin access</strong>
     <p class="muted">Enter admin password to manage forecasts.</p>
@@ -38,6 +40,7 @@
     </div>
   </div>
 
+  <!-- Admin panel -->
   <div id="panel" style="display:none;">
     <div class="card" style="margin-top:12px;">
       <div class="row">
@@ -49,9 +52,18 @@
       <div class="muted" id="fcSyncMsg" style="margin-top:6px;"></div>
     </div>
     <div id="fcList" style="margin-top:12px;"></div>
+
+    <div class="card" style="margin-top:12px;">
+      <div class="row" style="justify-content:space-between;">
+        <strong>AI Suggestions from Popular Tags</strong>
+        <button class="primary" id="genSuggest">Generate</button>
+      </div>
+      <div id="suggestionsBox" style="margin-top:8px;"></div>
+    </div>
   </div>
 </div>
 
+<!-- ONE config + ONE client -->
 <script>
   window.WILLOW_CFG = window.WILLOW_CFG || {
     url: 'https://seolktqxdxstwqdiqzke.supabase.co',
@@ -64,6 +76,7 @@
   window.__supa = window.__supa || createClient(url, anon);
 </script>
 
+<!-- Admin gate -->
 <script>
   const gate = document.getElementById('gate');
   const panel = document.getElementById('panel');
@@ -88,6 +101,7 @@
   if (localStorage.getItem('willow_admin_ok') === '1') openPanel();
 </script>
 
+<!-- Forecast core (admin) -->
 <script>
 const LS_FC = 'willow_forecasts';
 const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
@@ -116,10 +130,11 @@ function renderSparkline(values, w=120, h=28) {
   const pts = values.map((p,i)=>`${(i*step).toFixed(1)},${(h - (p-min)/(max-min)*h).toFixed(1)}`).join(' ');
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="#4f46e5" stroke-width="2" points="${pts}"/></svg>`;
 }
-function renderForecastCard(f){
+function renderForecastCard(f, votesById){
   const values = (f.updates||[]).map(u=>u.p);
   const pStar = aggregateLogOdds(f.updates||[]) ?? (values.length ? values.at(-1) : 0.5);
   const pct = Math.round((pStar||0.5)*100);
+  const votes = (votesById && votesById.get(f.id)) ? votesById.get(f.id).length : 0;
   const open = f.status !== 'resolved';
   const closed = f.status === 'closed';
   const status = f.status || 'open';
@@ -129,7 +144,7 @@ function renderForecastCard(f){
       <div>
         <strong>${f.title}</strong>
         <div class="muted">${f.resolution_criteria||''}</div>
-        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}</div>
+        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''} · Votes: ${votes}</div>
       </div>
       <div>${renderSparkline(values)}</div>
     </div>
@@ -157,10 +172,10 @@ function renderForecastCard(f){
     `}
   </div>`;
 }
-function refreshForecastList(){
+function refreshForecastList(votesById){
   const box = document.getElementById('fcList');
   const arr = loadForecasts().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1));
-  box.innerHTML = arr.length ? arr.map(renderForecastCard).join('') : '<div class="muted">No forecasts yet.</div>';
+  box.innerHTML = arr.length ? arr.map(f=>renderForecastCard(f, votesById||new Map())).join('') : '<div class="muted">No forecasts yet.</div>';
 
   box.querySelectorAll('.card[data-fid]').forEach(card=>{
     const id = card.getAttribute('data-fid');
@@ -213,6 +228,7 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
 });
 </script>
 
+<!-- Supabase sync (pull + push + realtime) -->
 <script type="module">
   const sb = window.__supa;
   const syncMsgEl = document.getElementById('fcSyncMsg');
@@ -226,10 +242,10 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
     const map=new Map(local.map(f=>[f.id,f]));
     for(const r of data){ const l=map.get(r.id); if(!l || new Date(r.updated_at||0) > new Date(l.updated_at||0)) map.set(r.id, r); }
     localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
-
     setSync('Cloud sync: up to date.');
     try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
   }
+
   window.pushForecastToServer = async function(f){
     if(!sb) return;
     try {
@@ -238,6 +254,16 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
       else setSync('Cloud sync: saved.');
     } catch (e) { console.warn('[Willow] push failed', e); setSync('Cloud sync: offline.'); }
   };
+
+  async function pullVotes(){
+    if(!sb) return new Map();
+    const { data, error } = await sb.from('forecast_votes').select('*');
+    if (error) { console.warn('[Willow] pull votes error', error); return new Map(); }
+    const map = new Map();
+    (data||[]).forEach(v=>{ if(!map.has(v.forecast_id)) map.set(v.forecast_id, []); map.get(v.forecast_id).push(v); });
+    return map;
+  }
+
   function subscribeRealtime(){
     if(!sb) return;
     sb.channel('willow-forecasts-admin')
@@ -253,10 +279,61 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
         localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
         try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecast_votes' }, async () => {
+        try { const votesMap = await pullVotes(); refreshForecastList(votesMap); } catch {}
+      })
       .subscribe();
   }
-  await pullForecastsFromServer();
+
+  const _ = await pullForecastsFromServer();
+  const votesMap = await pullVotes(); try{ refreshForecastList(votesMap); }catch{}
   subscribeRealtime();
+</script>
+
+<!-- AI suggestions from tag stats -->
+<script type="module">
+  const sb2 = window.__supa;
+  async function fetchUserTagStats(){
+    if(!sb2) return [];
+    const { data, error } = await sb2.from('user_tag_stats').select('most_tags, least_tags');
+    if (error) { console.warn('[Willow] tag stats error', error); return []; }
+    return data || [];
+  }
+  function aggregatePopularTags(rows){
+    const counts = new Map();
+    rows.forEach(r => (r.most_tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+3)));
+    rows.forEach(r => (r.least_tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+1)));
+    try {
+      const notes = JSON.parse(localStorage.getItem('willow_notes')||'[]');
+      notes.forEach(n => (n.tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+2)));
+    } catch {}
+    return [...counts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([t])=>t);
+  }
+  function makeQuestionTemplates(tag){
+    const yr = new Date().getFullYear();
+    return [
+      `Will ${tag} risks materially increase by ${yr}?`,
+      `Will policy changes related to ${tag} be enacted by ${yr}?`,
+      `Will markets price a ${tag} shock (≥1σ daily move) before ${yr+1}-06-30?`
+    ];
+  }
+  function renderSuggestions(tags){
+    const box=document.getElementById('suggestionsBox'); const rows=[];
+    tags.forEach(tag=>{
+      const qs=makeQuestionTemplates(tag);
+      qs.forEach(q=>rows.push(`<div class="prop-card"><div><strong>${q}</strong></div><div class="row" style="margin-top:6px;"><button class="btn primary" data-use-q="${encodeURIComponent(q)}" data-tag="${encodeURIComponent(tag)}">Use this</button></div></div>`));
+    });
+    box.innerHTML = rows.join('') || '<div class="muted">No tag signals yet.</div>';
+    box.querySelectorAll('[data-use-q]').forEach(btn=>btn.addEventListener('click',()=>{
+      const q=decodeURIComponent(btn.getAttribute('data-use-q')); const tag=decodeURIComponent(btn.getAttribute('data-tag'));
+      document.getElementById('fcTitle').value=q;
+      document.getElementById('fcCriteria').value=`Track via notes tagged “${tag}”. Define resolution consistent with the question.`;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
+  }
+  document.getElementById('genSuggest')?.addEventListener('click', async ()=>{
+    const rows = await fetchUserTagStats(); const tags = aggregatePopularTags(rows); renderSuggestions(tags);
+  });
 </script>
 </body>
 </html>
