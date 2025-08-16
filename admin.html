@@ -15,10 +15,11 @@
   input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px}
   textarea{resize:vertical;min-height:90px}
   button{border:1px solid var(--line);background:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
-  .primary{background:var(--accent);border-color:var(--accent);color:#fff}
-  .danger{border-color:var(--danger);color:#ef4444}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.danger{border-color:var(--danger);color:#ef4444}
   .pill{font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:#64748b}
   .muted{color:#64748b;font-size:12px}
+  .prop-card{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px}
 </style>
 </head>
 <body>
@@ -28,27 +29,37 @@
     <a href="index.html">Back to app</a>
   </div>
 
+  <!-- Password gate -->
   <div id="gate" class="card" style="margin-top:12px;">
     <strong>Admin access</strong>
     <p class="muted">Enter admin password to manage forecasts.</p>
     <div class="row">
       <input id="pw" type="password" placeholder="admin">
-      <button id="go" class="primary">Enter</button>
+      <button id="go" class="btn primary">Enter</button>
       <span id="msg" class="muted"></span>
     </div>
   </div>
 
+  <!-- Admin panel -->
   <div id="panel" style="display:none;">
     <div class="card" style="margin-top:12px;">
       <div class="row">
         <input id="fcTitle" placeholder="Question (binary)" style="flex:1">
         <input id="fcClose" type="date" title="Close date">
-        <button class="primary" id="fcCreate">New forecast</button>
+        <button class="btn primary" id="fcCreate">New forecast</button>
       </div>
       <textarea id="fcCriteria" placeholder="Resolution criteria (who/what/when/how)"></textarea>
       <div class="muted" id="fcSyncMsg" style="margin-top:6px;"></div>
     </div>
     <div id="fcList" style="margin-top:12px;"></div>
+
+    <div class="card" style="margin-top:12px;">
+      <div class="row" style="justify-content:space-between;">
+        <strong>AI Suggestions from Popular Tags</strong>
+        <button class="btn primary" id="genSuggest">Generate</button>
+      </div>
+      <div id="suggestionsBox" style="margin-top:8px;"></div>
+    </div>
   </div>
 </div>
 
@@ -64,6 +75,7 @@
   window.__supa = window.__supa || createClient(url, anon);
 </script>
 
+<!-- Admin gate -->
 <script>
   const gate = document.getElementById('gate');
   const panel = document.getElementById('panel');
@@ -77,17 +89,14 @@
 
   document.getElementById('go').addEventListener('click', ()=>{
     const v = (document.getElementById('pw').value||'').trim();
-    if (v === 'admin') {
-      openPanel();
-    } else {
-      gateMsgEl.textContent='Wrong password';
-      gateMsgEl.className='pill';
-    }
+    if (v === 'admin') openPanel();
+    else { gateMsgEl.textContent='Wrong password'; gateMsgEl.className='pill'; }
   });
 
   if (localStorage.getItem('willow_admin_ok') === '1') openPanel();
 </script>
 
+<!-- Forecast core (admin) -->
 <script>
 const LS_FC = 'willow_forecasts';
 const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
@@ -108,7 +117,7 @@ function aggregateLogOdds(updates, now=Date.now(), halfLifeDays=14, extremize=1.
   return invLogit((num/den) * extremize);
 }
 function brier(p, outcomeYes) { const y = outcomeYes ? 1 : 0; return (clamp(p) - y) ** 2; }
-function newForecastId() { const d=new Date(); return `F-${d.getFullYear()}${(d.getMonth()+1+'').padStart(2,'0')}${(d.getDate()+'').padStart(2,'0')}-${Math.random().toString(36).slice(2,8)}`; }
+function newForecastId() { const d=new Date(); return `F-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${Math.random().toString(36).slice(2,8)}`; }
 function upsertForecastLocal(f){ const all=loadForecasts(); const i=all.findIndex(x=>x.id===f.id); if(i>=0) all[i]=f; else all.push(f); saveForecasts(all); return f; }
 function renderSparkline(values, w=120, h=28) {
   if (!values?.length) return `<svg width="${w}" height="${h}"></svg>`;
@@ -116,20 +125,21 @@ function renderSparkline(values, w=120, h=28) {
   const pts = values.map((p,i)=>`${(i*step).toFixed(1)},${(h - (p-min)/(max-min)*h).toFixed(1)}`).join(' ');
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="#4f46e5" stroke-width="2" points="${pts}"/></svg>`;
 }
-function renderForecastCard(f){
+function renderForecastCard(f, votesById){
   const values = (f.updates||[]).map(u=>u.p);
   const pStar = aggregateLogOdds(f.updates||[]) ?? (values.length ? values.at(-1) : 0.5);
   const pct = Math.round((pStar||0.5)*100);
-  const open = f.status !== 'resolved';
-  const closed = f.status === 'closed';
+  const votes = (votesById && votesById.get(f.id)) ? votesById.get(f.id).length : 0;
   const status = f.status || 'open';
+  const closed = status === 'closed';
+  const open = status !== 'resolved';
   return `
   <div class="card" data-fid="${f.id}">
     <div class="row" style="justify-content:space-between;">
       <div>
         <strong>${f.title}</strong>
         <div class="muted">${f.resolution_criteria||''}</div>
-        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}</div>
+        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''} · Votes: ${votes}</div>
       </div>
       <div>${renderSparkline(values)}</div>
     </div>
@@ -157,10 +167,10 @@ function renderForecastCard(f){
     `}
   </div>`;
 }
-function refreshForecastList(){
+function refreshForecastList(votesById){
   const box = document.getElementById('fcList');
   const arr = loadForecasts().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1));
-  box.innerHTML = arr.length ? arr.map(renderForecastCard).join('') : '<div class="muted">No forecasts yet.</div>';
+  box.innerHTML = arr.length ? arr.map(f=>renderForecastCard(f, votesById||new Map())).join('') : '<div class="muted">No forecasts yet.</div>';
 
   box.querySelectorAll('.card[data-fid]').forEach(card=>{
     const id = card.getAttribute('data-fid');
@@ -213,6 +223,7 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
 });
 </script>
 
+<!-- Supabase sync (pull + push + realtime) -->
 <script type="module">
   const sb = window.__supa;
   const syncMsgEl = document.getElementById('fcSyncMsg');
@@ -226,10 +237,10 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
     const map=new Map(local.map(f=>[f.id,f]));
     for(const r of data){ const l=map.get(r.id); if(!l || new Date(r.updated_at||0) > new Date(l.updated_at||0)) map.set(r.id, r); }
     localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
-
     setSync('Cloud sync: up to date.');
     try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
   }
+
   window.pushForecastToServer = async function(f){
     if(!sb) return;
     try {
@@ -238,6 +249,16 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
       else setSync('Cloud sync: saved.');
     } catch (e) { console.warn('[Willow] push failed', e); setSync('Cloud sync: offline.'); }
   };
+
+  async function pullVotes(){
+    if(!sb) return new Map();
+    const { data, error } = await sb.from('forecast_votes').select('*');
+    if (error) { console.warn('[Willow] pull votes error', error); return new Map(); }
+    const map = new Map();
+    (data||[]).forEach(v=>{ if(!map.has(v.forecast_id)) map.set(v.forecast_id, []); map.get(v.forecast_id).push(v); });
+    return map;
+  }
+
   function subscribeRealtime(){
     if(!sb) return;
     sb.channel('willow-forecasts-admin')
@@ -253,21 +274,70 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
         localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
         try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecast_votes' }, async () => {
+        try { const votesMap = await pullVotes(); refreshForecastList(votesMap); } catch {}
+      })
       .subscribe();
   }
-  await pullForecastsFromServer();
+
+  const _ = await pullForecastsFromServer();
+  const votesMap = await pullVotes(); try{ refreshForecastList(votesMap); }catch{}
   subscribeRealtime();
 </script>
 
+<!-- AI suggestions from tag stats -->
 <script type="module">
-  // Adds a "View votes" button per forecast and shows a table with email + vote
+  const sb2 = window.__supa;
+  async function fetchUserTagStats(){
+    if(!sb2) return [];
+    const { data, error } = await sb2.from('user_tag_stats').select('most_tags, least_tags');
+    if (error) { console.warn('[Willow] tag stats error', error); return []; }
+    return data || [];
+  }
+  function aggregatePopularTags(rows){
+    const counts = new Map();
+    rows.forEach(r => (r.most_tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+3)));
+    rows.forEach(r => (r.least_tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+1)));
+    try {
+      const notes = JSON.parse(localStorage.getItem('willow_notes')||'[]');
+      notes.forEach(n => (n.tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+2)));
+    } catch {}
+    return [...counts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([t])=>t);
+  }
+  function makeQuestionTemplates(tag){
+    const yr = new Date().getFullYear();
+    return [
+      `Will ${tag} risks materially increase by ${yr}?`,
+      `Will policy changes related to ${tag} be enacted by ${yr}?`,
+      `Will markets price a ${tag} shock (≥1σ daily move) before ${yr+1}-06-30?`
+    ];
+  }
+  function renderSuggestions(tags){
+    const box=document.getElementById('suggestionsBox'); const rows=[];
+    tags.forEach(tag=>{
+      const qs=makeQuestionTemplates(tag);
+      qs.forEach(q=>rows.push(`<div class="prop-card"><div><strong>${q}</strong></div><div class="row" style="margin-top:6px;"><button class="btn primary" data-use-q="${encodeURIComponent(q)}" data-tag="${encodeURIComponent(tag)}">Use this</button></div></div>`));
+    });
+    box.innerHTML = rows.join('') || '<div class="muted">No tag signals yet.</div>';
+    box.querySelectorAll('[data-use-q]').forEach(btn=>btn.addEventListener('click',()=>{
+      const q=decodeURIComponent(btn.getAttribute('data-use-q')); const tag=decodeURIComponent(btn.getAttribute('data-tag'));
+      document.getElementById('fcTitle').value=q;
+      document.getElementById('fcCriteria').value=`Track via notes tagged “${tag}”. Define resolution consistent with the question.`;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
+  }
+  document.getElementById('genSuggest')?.addEventListener('click', async ()=>{
+    const rows = await fetchUserTagStats(); const tags = aggregatePopularTags(rows); renderSuggestions(tags);
+  });
+</script>
+
+<!-- Admin: view votes with email (RPC) -->
+<script type="module">
   const sb = window.__supa;
 
-  // Hook after each render
   function wireVoteViews() {
     document.querySelectorAll('#fcList .card[data-fid]').forEach((card) => {
-      if (card.__votesWired) return;
-      card.__votesWired = true;
+      if (card.__votesWired) return; card.__votesWired = true;
 
       const topRow = card.querySelector('.row'); // header row
       const btn = document.createElement('button');
@@ -305,7 +375,7 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
             .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
             .map(v => `
               <tr>
-                <td>${v.email ?? v.user_id}</td>
+                <td>${(v.email || '').replace(/</g,'&lt;') || v.user_id}</td>
                 <td style="text-align:right;">${Math.round(v.prob * 100)}%</td>
                 <td>${(v.rationale || '').replace(/</g,'&lt;')}</td>
                 <td>${new Date(v.created_at).toLocaleString()}</td>
@@ -336,9 +406,8 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
     });
   }
 
-  // Run once now, and also after re-renders
+  // First wire, then re-wire on refreshes
   wireVoteViews();
-  // Monkey-patch the existing refresh to auto-wire (safe if present)
   const _origRefresh = window.refreshForecastList;
   if (typeof _origRefresh === 'function') {
     window.refreshForecastList = function(...args) {
@@ -347,6 +416,5 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
     };
   }
 </script>
-
 </body>
 </html>
