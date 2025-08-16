@@ -160,7 +160,7 @@
   window.__supa = window.__supa || createClient(url, anon);
 
   const supa = window.__supa;
-  const { data: { session } } = await supa.auth.getSession();
+  const { data: { session } } = await supa.auth.getSession().catch(()=>({data:{}}));
   if (!session?.user) {
     location.href = new URL('auth.html', location.href).href;
   } else {
@@ -237,7 +237,7 @@
       const data=feat.data||feat.tensor?.data||feat; const dim=Array.isArray(feat.dims)?feat.dims.at(-1):feat[0].length;
       const rows=data.length/dim; const out=new Float32Array(dim);
       for(let r=0;r<rows;r++){const base=r*dim; for(let c=0;c<dim;c++) out[c]+=data[base+c]}
-      for(let c=0;c<dim;c++) out[c]/=rows; let n=0; for(let c=0;c<dim;c++) n+=out[c]*out[c]; n=Math.sqrt(n)||1;
+      for(let c=0;c<dim;c++) out[c]/=rows; let n=0; for(let c=0;c++) n+=out[c]*out[c]; n=Math.sqrt(n)||1;
       for(let c=0;c<dim;c++) out[c]/=n; return out;
     }
     function cosine(a,b){ let s=0,na=0,nb=0; for(let i=0;i<a.length;i++){s+=a[i]*b[i];na+=a[i]*a[i];nb+=b[i]*b[i]} return s/(Math.sqrt(na)*Math.sqrt(nb)||1) }
@@ -255,10 +255,14 @@
       { tag:"climate", title:"Orthogonal: Climate & weather", hint:"physical risk, transition paths, insurance" },
       { tag:"housing", title:"Orthogonal: Housing dynamics", hint:"construction pipeline, rents, land use" }
     ];
-    function analyzeStyle(t){ t=(t||'').trim(); const words=t.split(/\s+/).filter(Boolean);
-      const avg = words.length ? Math.round(words.join(' ').length / Math.max(1, t.split(/[.!?]+/).filter(Boolean).length)) : 80;
-      const short=avg<120, first=/\b(I|we|my|our|I'm|we're)\b/i.test(t), bullets(/^\s*[-*•]/m.test(t));
-      return {short, firstPerson:first, bullets};
+    function analyzeStyle(t){
+      t=(t||'').trim();
+      const sentences = t.split(/[.!?]+/).filter(Boolean);
+      const avg = sentences.length ? Math.round(t.length / sentences.length) : 80;
+      const short = avg < 120;
+      const first = /\b(I|we|my|our|I'm|we're)\b/i.test(t);
+      const bullets = /^\s*[-*•]/m.test(t);
+      return { short, firstPerson:first, bullets };
     }
     function chooseSeed(note){
       const text=(note.title+' '+note.content).toLowerCase(); const counts=bsSeedCounts();
@@ -275,9 +279,10 @@
           const e=await ensureEmbedder();
           const q=await e(note.content,{pooling:'mean',normalize:true});
           const vecs=await Promise.all(others.map(n=>e(n.content,{pooling:'mean',normalize:true})));
+          const qv=q.data||q;
           const A=new Set((note.tags||[]));
           const results=others.map((n,i)=>{
-            const qv=q.data||q; const ov=vecs[i].data||vecs[i];
+            const ov=vecs[i].data||vecs[i];
             let s=0,na=0,nb=0; for (let k=0;k<qv.length;k++){ s+=qv[k]*ov[k]; na+=qv[k]*qv[k]; nb+=ov[k]*ov[k]; }
             const sim01 = s/(Math.sqrt(na)*Math.sqrt(nb)||1)*0.5+0.5;
             const B=new Set(n.tags||[]); const inter=[...A].filter(x=>B.has(x)).length; const uni=new Set([...A,...B]).size||1; const jacc=inter/uni;
@@ -296,7 +301,7 @@
         const style=analyzeStyle(note.content); const seed=chooseSeed(note); const who=style.firstPerson?'I':'We';
         const topic=(note.title||'this topic').toLowerCase();
         const body= style.bullets
-          ? `- Hypothesis: ${seed.tag} materially shapes ${topic} through second-order channels.\n- Channels: incentives, balance-sheet transmission, timing.\n- Evidence: ${seed.hint}.\n- What would falsify?`
+          ? `- ${seed.title}\n- Hypothesis: ${seed.tag} materially shapes ${topic} through second-order channels.\n- Channels: incentives, balance-sheet transmission, timing.\n- Evidence: ${seed.hint}.\n- What would falsify?`
           : `${who} suspect ${seed.tag} materially shapes ${topic} via second-order channels. Consider evidence via ${seed.hint}. What would falsify this?`;
         return { links:[], proposed_notes:[{ title:seed.title, content:body, tags:[seed.tag] }], feedback:"Blind-spot note (new path candidate)." };
       },
@@ -530,18 +535,23 @@ window.pushUserTagStats = async function pushUserTagStats() {
     } else { agentMsg('Link already exists'); }
   }
   function acceptProposedNote(p, context){
-    let num; const tags=p.tags||[];
-    if(tags.includes('blind-spot')) num = nextRoot();
-    else if(context) num = suggestChild(context.num) || (/\d$/.test(context.num)?context.num+'a':context.num+'1');
-    else num = nextRoot();
+    let num;
+    if (p.__agent === 'blind_spot') {
+      num = nextRoot(); // always new path
+    } else if (context) {
+      num = suggestChild(context.num) || (/\d$/.test(context.num)?context.num+'a':context.num+'1');
+    } else {
+      num = nextRoot();
+    }
     while(loadNotes().some(n=>n.num===num)) num = suggestSibling(num) || (/[a-z]$/.test(num)?num+'a':num+'1');
-    let content=p.content||''; if(tags.includes('analogy')) content = stripHistorianLead(content);
-    const note={ id:newUID(), userId: window.currentUserId || null, num, title:p.title||'Proposed', content, tags, source:'', createdAt:now(), updatedAt:now(), published:true };
+    let content=p.content||'';
+    if ((p.tags||[]).includes('analogy')) content = stripHistorianLead(content);
+    const note={ id:newUID(), userId: window.currentUserId || null, num, title:p.title||'Proposed', content, tags:(p.tags||[]), source:'', createdAt:now(), updatedAt:now(), published:true };
     upsertNote(note); refreshRecent(); renderGraph(); agentMsg(`Published proposed note as ${note.num}`); setTimeout(()=>pulseNode(note.id),90);
     window.pushUserTagStats?.();
   }
 
-  const svg=$('#kg'), vp=$('#vp'); const view={x:0,y:0,k:1};
+  const svg=document.getElementById('kg'), vp=document.getElementById('vp'); const view={x:0,y:0,k:1};
   function applyTransform(){ vp.setAttribute('transform',`translate(${view.x} ${view.y}) scale(${view.k})`); }
   function resetView(){ view.x=0; view.y=0; view.k=1; applyTransform(); }
   applyTransform();
@@ -692,7 +702,6 @@ function refreshForecastListUser(){
           else alert('Vote failed: ' + error.message);
           return;
         }
-        // push into local cache and re-render
         const cur = loadVotes(); cur.push({ forecast_id:id, user_id:uid, prob:p, rationale, created_at:new Date().toISOString() });
         saveVotes(cur);
         refreshForecastListUser();
