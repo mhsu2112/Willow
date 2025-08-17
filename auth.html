@@ -31,7 +31,7 @@
   </div>
 
   <div class="card">
-    <h1 id="modeTitle">Welcome</h1>
+    <h1 id="modeTitle">Welcome back</h1>
     <p class="muted" id="helper">Sign in to continue. New here? Create an account below.</p>
 
     <div class="row" style="margin-top:6px;">
@@ -67,20 +67,30 @@
     anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlb2xrdHF4ZHhzdHdxZGlxemtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNjc0MjAsImV4cCI6MjA3MDk0MzQyMH0.Qt6wLLfR1QxbYGpq42t1uwpy5kDdqb_LN5-JA89Fj-U'
   };
 </script>
+
+<!-- Create Supabase client with API key header -->
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
-  window.__supa = window.__supa || createClient(url, anon);
+  window.__supa = window.__supa || createClient(url, anon, {
+    auth: { persistSession: true, autoRefreshToken: true },
+    global: { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
+  });
 
   const supa = window.__supa;
-  const appUrl = new URL('index.html', location.href).href;
 
-  const { data: { session) } } = await supa.auth.getSession().catch(()=>({data:{}}));
-  if (session?.user) {
-    localStorage.setItem('willow_user', JSON.stringify({ id: session.user.id, email: session.user.email }));
-    location.href = appUrl;
-  }
+  // If already signed in, go straight to app
+  try {
+    const { data: { session } } = await supa.auth.getSession();
+    if (session?.user) {
+      localStorage.setItem('willow_user', JSON.stringify({ id: session.user.id, email: session.user.email }));
+      location.href = new URL('index.html', location.href).href;
+    }
+  } catch {}
+</script>
 
+<script type="module">
+  const supa = window.__supa;
   const msg = (t, cls='muted') => { const el=document.getElementById('msg'); el.className=cls; el.textContent=t; };
 
   let mode = 'signin';
@@ -97,7 +107,7 @@
 
   document.getElementById('googleBtn').addEventListener('click', async ()=>{
     try {
-      await supa.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: appUrl } });
+      await supa.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: new URL('index.html', location.href).href } });
     } catch (e) { msg('Google sign-in failed. Check provider config.', 'error'); console.error(e); }
   });
 
@@ -107,14 +117,14 @@
     const password = document.getElementById('password').value;
     try {
       if (mode==='signup') {
-        const { error } = await supa.auth.signUp({ email, password, options: { emailRedirectTo: appUrl } });
+        const { error } = await supa.auth.signUp({ email, password, options: { emailRedirectTo: new URL('index.html', location.href).href } });
         if (error) throw error;
         msg('Check your email to confirm your account.', 'ok');
       } else {
         const { data, error } = await supa.auth.signInWithPassword({ email, password });
         if (error) throw error;
         localStorage.setItem('willow_user', JSON.stringify({ id: data.user.id, email: data.user.email }));
-        location.href = appUrl;
+        location.href = 'index.html';
       }
     } catch (err) { msg(err.message || 'Authentication error', 'error'); console.error(err); }
   });
