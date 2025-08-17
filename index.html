@@ -236,8 +236,6 @@
     if (!api) { console.error('[Willow] transformers not available'); return; }
     const { ensureEmbedder } = api;
 
-    function cosine(a,b){ let s=0,na=0,nb=0; for(let i=0;i<a.length;i++){s+=a[i]*b[i];na+=a[i]*a[i];nb+=b[i]*b[i]} return s/(Math.sqrt(na)*Math.sqrt(nb)||1) }
-
     const BS_SEED_KEY = "willow_blindspot_seeds";
     function bsSeedCounts(){ try{ return JSON.parse(localStorage.getItem(BS_SEED_KEY)||"{}"); } catch { return {}; } }
     function bsSeedBump(tag){ const m=bsSeedCounts(); m[tag]=(m[tag]||0)+1; localStorage.setItem(BS_SEED_KEY, JSON.stringify(m)); }
@@ -712,12 +710,30 @@ function refreshForecastListUser(){
 <script type="module">
   const sb = window.__supa;
 
+  // snake->camel for local storage
+  function fromDbRow(r){
+    return {
+      id: r.id,
+      title: r.title,
+      resolution_criteria: r.resolution_criteria ?? null,
+      closeAt: r.close_at ?? null,
+      resolveBy: r.resolve_by ?? null,
+      status: r.status ?? 'open',
+      tags: r.tags ?? [],
+      linkedNoteIds: r.linked_note_ids ?? [],
+      updates: r.updates ?? [],
+      metrics: r.metrics ?? {},
+      resolution: r.resolution ?? null,
+      updated_at: r.updated_at ?? new Date().toISOString()
+    };
+  }
+
   async function pullForecastsFromServer(){
     const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
     if(error){ console.warn('[Willow] pull forecasts error', error); return; }
     const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
     const map=new Map(local.map(f=>[f.id,f]));
-    for(const r of data){ const l=map.get(r.id); if(!l || new Date(r.updated_at||0) > new Date(l.updated_at||0)) map.set(r.id, r); }
+    for(const r of data){ const f = fromDbRow(r); const l=map.get(f.id); if(!l || new Date(f.updated_at||0) > new Date(l.updated_at||0)) map.set(f.id, f); }
     localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
     try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
   }
@@ -734,7 +750,7 @@ function refreshForecastListUser(){
         const map=new Map(local.map(f=>[f.id,f]));
         const row = payload.new || payload.old;
         if(payload.eventType==='DELETE'){ map.delete(row.id); }
-        else { const cur=map.get(row.id); if(!cur || new Date(row.updated_at||0) >= new Date(cur.updated_at||0)) map.set(row.id, row); }
+        else { const f = fromDbRow(row); const cur=map.get(f.id); if(!cur || new Date(f.updated_at||0) >= new Date(cur.updated_at||0)) map.set(f.id, f); }
         localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
         try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
       })
