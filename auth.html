@@ -72,7 +72,7 @@
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
 
-  // --- FIX: ensure apikey is always present, even if headers get stripped ---
+  // Append ?apikey=… to /rest/v1/* requests (defense-in-depth)
   const originHost = new URL(url).host;
   const withApiKeyQuery = async (input, init) => {
     const reqUrl = typeof input === 'string' ? input : input.url;
@@ -87,12 +87,10 @@
     }
   };
 
+  // IMPORTANT: only apikey header. Let supabase-js add user JWT automatically.
   window.__supa = window.__supa || createClient(url, anon, {
     auth: { persistSession: true, autoRefreshToken: true },
-    global: {
-      headers: { apikey: anon, Authorization: `Bearer ${anon}` },
-      fetch: withApiKeyQuery
-    }
+    global: { headers: { apikey: anon }, fetch: withApiKeyQuery }
   });
 
   const supa = window.__supa;
