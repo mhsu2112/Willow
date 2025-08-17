@@ -5,61 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Willow — Sign in</title>
 <style>
-  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --bg:#f8fafc; --ok:#16a34a; --danger:#ef4444; }
+  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --bg:#f8fafc; }
   *{box-sizing:border-box}
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
-  .wrap{max-width:720px;margin:0 auto;padding:24px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px}
-  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  h1{margin:0 0 16px 0}
-  label span{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
-  input{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font:inherit}
+  main{max-width:420px;margin:8vh auto;padding:20px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit}
   button{font:inherit;border:1px solid var(--line);background:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
-  .primary{background:var(--accent);border-color:var(--accent);color:#fff}
-  .muted{color:var(--muted);font-size:12px}
-  .error{color:var(--danger)}
-  .ok{color:var(--ok)}
-  .or{display:flex;align-items:center;gap:12px;margin:12px 0}
-  .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .muted{color:#64748b}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="row" style="justify-content:space-between;margin-bottom:16px;">
-    <div class="row" style="gap:10px;"><div style="font-size:24px;">🌿</div><strong>Willow</strong></div>
-    <a href="index.html">Go to app</a>
-  </div>
-
+<main>
   <div class="card">
-    <h1 id="modeTitle">Welcome back</h1>
-    <p class="muted" id="helper">Sign in to continue. New here? Create an account below.</p>
-
-    <div class="row" style="margin-top:6px;">
-      <button id="googleBtn" class="row" style="gap:8px;align-items:center;">
-        <img alt="" src="https://www.gstatic.com/images/branding/product/1x/gsa_64dp.png" width="18" height="18"/>
-        <span>Continue with Google</span>
-      </button>
+    <h1 style="margin:0 0 6px 0;">Sign in to Willow</h1>
+    <p class="muted">Use Google or email/password.</p>
+    <div class="row" style="margin-top:8px;">
+      <button id="google" class="btn primary">Continue with Google</button>
     </div>
-
-    <div class="or"><span class="muted">or</span></div>
-
-    <form id="authForm">
-      <label><span>Email</span><input id="email" type="email" required placeholder="you@example.com"></label>
-      <div style="height:10px"></div>
-      <label><span>Password</span><input id="password" type="password" required placeholder="••••••••"></label>
-
-      <div class="row" style="margin-top:14px;">
-        <button class="primary" id="submitBtn" type="submit">Sign in</button>
-        <button type="button" id="switchBtn">Need an account? Sign up</button>
+    <div style="margin-top:12px;">
+      <label>Email<br/><input id="email" type="email" placeholder="you@example.com"></label><br/><br/>
+      <label>Password<br/><input id="password" type="password" placeholder="••••••••"></label>
+      <div class="row" style="margin-top:8px;">
+        <button id="signin" class="btn">Sign in</button>
+        <button id="signup" class="btn">Sign up</button>
       </div>
-      <div id="msg" class="muted" style="margin-top:10px;"></div>
-    </form>
+    </div>
+    <p class="muted" id="msg" style="margin-top:10px;"></p>
   </div>
-
-  <p class="muted" style="margin-top:12px">
-    Tip: in Google Cloud add <code>https://seolktqxdxstwqdiqzke.supabase.co/auth/v1/callback</code> as an authorized redirect URI.
-  </p>
-</div>
+</main>
 
 <script>
   window.WILLOW_CFG = {
@@ -70,16 +46,15 @@
 
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-  const { url, anon } = window.WILLOW_CFG;
+  const cfg = window.WILLOW_CFG;
 
-  // Append ?apikey=… to /rest/v1/* requests (defense-in-depth)
-  const originHost = new URL(url).host;
+  const originHost = new URL(cfg.url).host;
   const withApiKeyQuery = async (input, init) => {
     const reqUrl = typeof input === 'string' ? input : input.url;
     try {
       const u = new URL(reqUrl);
       if (u.host === originHost && u.pathname.includes('/rest/v1/')) {
-        if (!u.searchParams.has('apikey')) u.searchParams.set('apikey', anon);
+        if (!u.searchParams.has('apikey')) u.searchParams.set('apikey', cfg.anon);
       }
       return fetch(u.toString(), init);
     } catch {
@@ -87,62 +62,44 @@
     }
   };
 
-  // IMPORTANT: only apikey header. Let supabase-js add user JWT automatically.
-  window.__supa = window.__supa || createClient(url, anon, {
+  const supa = createClient(cfg.url, cfg.anon, {
     auth: { persistSession: true, autoRefreshToken: true },
-    global: { headers: { apikey: anon }, fetch: withApiKeyQuery }
+    global: { headers: { apikey: cfg.anon }, fetch: withApiKeyQuery }
   });
 
-  const supa = window.__supa;
+  const msg = document.getElementById('msg');
+  function setMsg(t){ msg.textContent = t; }
 
-  try {
-    const { data: { session } } = await supa.auth.getSession();
-    if (session?.user) {
-      localStorage.setItem('willow_user', JSON.stringify({ id: session.user.id, email: session.user.email }));
-      location.href = new URL('index.html', location.href).href;
-    }
-  } catch {}
-</script>
-
-<script type="module">
-  const supa = window.__supa;
-  const msg = (t, cls='muted') => { const el=document.getElementById('msg'); el.className=cls; el.textContent=t; };
-
-  let mode = 'signin';
-  const modeTitle = document.getElementById('modeTitle');
-  const submitBtn = document.getElementById('submitBtn');
-  const switchBtn = document.getElementById('switchBtn');
-  function setMode(m){
-    mode = m;
-    if (m==='signup'){ modeTitle.textContent='Create your account'; submitBtn.textContent='Sign up'; switchBtn.textContent='Already have an account? Sign in'; }
-    else { modeTitle.textContent='Welcome back'; submitBtn.textContent='Sign in'; switchBtn.textContent='Need an account? Sign up'; }
-    msg('');
-  }
-  switchBtn.addEventListener('click', ()=> setMode(mode==='signin'?'signup':'signin'));
-
-  document.getElementById('googleBtn').addEventListener('click', async ()=>{
+  document.getElementById('google').onclick = async ()=>{
     try {
-      await supa.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: new URL('index.html', location.href).href } });
-    } catch (e) { msg('Google sign-in failed. Check provider config.', 'error'); console.error(e); }
-  });
+      const { error } = await supa.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: new URL('index.html', location.href).href
+        }
+      });
+      if (error) setMsg('Google sign-in error: ' + error.message);
+      else setMsg('Redirecting to Google…');
+    } catch (e) { setMsg('Google sign-in failed'); console.error(e); }
+  };
 
-  document.getElementById('authForm').addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const email = (document.getElementById('email').value||'').trim();
+  document.getElementById('signin').onclick = async ()=>{
+    const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
-    try {
-      if (mode==='signup') {
-        const { error } = await supa.auth.signUp({ email, password, options: { emailRedirectTo: new URL('index.html', location.href).href } });
-        if (error) throw error;
-        msg('Check your email to confirm your account.', 'ok');
-      } else {
-        const { data, error } = await supa.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        localStorage.setItem('willow_user', JSON.stringify({ id: data.user.id, email: data.user.email }));
-        location.href = 'index.html';
-      }
-    } catch (err) { msg(err.message || 'Authentication error', 'error'); console.error(err); }
-  });
+    if (!email || !password) return setMsg('Enter email and password');
+    const { error } = await supa.auth.signInWithPassword({ email, password });
+    if (error) setMsg('Sign in error: ' + error.message);
+    else location.href = 'index.html';
+  };
+
+  document.getElementById('signup').onclick = async ()=>{
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    if (!email || !password) return setMsg('Enter email and password');
+    const { error } = await supa.auth.signUp({ email, password });
+    if (error) setMsg('Sign up error: ' + error.message);
+    else setMsg('Check your email to confirm, then sign in.');
+  };
 </script>
 </body>
 </html>
