@@ -155,7 +155,6 @@
   };
 </script>
 
-<!-- Supabase client (must be first) -->
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
@@ -191,7 +190,6 @@
   }
 </script>
 
-<!-- Transformers loader for local agents -->
 <script type="module">
 (async () => {
   async function loadTransformers() {
@@ -228,7 +226,6 @@
 })();
 </script>
 
-<!-- Local agents -->
 <script type="module">
 (function(){
   function defineAgents(){
@@ -285,7 +282,7 @@
           return {links,proposed_notes:[],feedback:"Semantic similarity + tag overlap."};
         }catch(err){
           const overlap=(a=[],b=[])=>a.filter(t=>b.includes(t)).length;
-          const ranked=others.map(n=>({n,score:overlap(note.tags,n.tags)})).sort((x,y)=>y.score-x.score);
+          const ranked=(notes||[]).map(n=>({n,score:overlap(note.tags,n.tags)})).sort((x,y)=>y.score-x.score);
           const links=ranked.filter(r=>r.score>0).map(r=>({from:note.id,to:r.n.id,type:'thematic',confidence:Math.min(0.95,0.6+r.score*0.1)}));
           return {links,proposed_notes:[],feedback:"Heuristic (tags only)."};
         }
@@ -326,7 +323,6 @@
 })();
 </script>
 
-<!-- Tag stats helpers -->
 <script>
 function notesForCurrentUser() {
   const all = (function(){ try { return JSON.parse(localStorage.getItem('willow_notes')||'[]'); } catch { return []; } })();
@@ -366,7 +362,6 @@ window.pushUserTagStats = async function pushUserTagStats() {
 };
 </script>
 
-<!-- Notes, placement, graph, agents glue -->
 <script>
   const LS_NOTES='willow_notes', LS_LINKS='willow_links';
   const loadNotes=()=>{try{return JSON.parse(localStorage.getItem(LS_NOTES)||'[]')}catch{return[]}};
@@ -417,7 +412,13 @@ window.pushUserTagStats = async function pushUserTagStats() {
 
   function togglePlacement(on){ placeMode=on; document.body.classList.toggle('place-mode',on); $$('#recentList .recent-item').forEach(li=>li.classList.toggle('placeable',on)); $('#newRootTarget').style.display=on?'block':'none'; $('#nextRootPreview').textContent=on?nextRoot():''; $('#placeBanner').style.display=on?'flex':'none'; }
   function beginPlacement(action, fields){ pendingAction=action; pendingFields=fields; togglePlacement(true); }
-  function finishPlacementWith(num){ $('#numInput').value=num; togglePlacement(false); if(pendingAction==='publish') finalizePublish(pendingFields,num); else if(pendingAction==='draft') finalizeDraft(pendingFields,num); pendingAction=null; pendingFields=null; }
+  function finishPlacementWith(num){
+    $('#numInput').value=num;
+    togglePlacement(false);
+    if(pendingAction==='publish') finalizePublish(pendingFields,num);
+    else if(pendingAction==='draft') finalizeDraft(pendingFields,num);
+    pendingAction=null; pendingFields=null;
+  }
 
   async function finalizeDraft(fields, num){
     try{
@@ -427,6 +428,8 @@ window.pushUserTagStats = async function pushUserTagStats() {
       upsertNote(note); loadedId=note.id; $('#hiddenKeepId').value='1';
       showMsg(`Draft saved (${note.num})`); refreshRecent(); renderGraph();
       await (window.pushUserTagStats?.());
+      // NEW: after saving, reset for next note
+      clearForm(); location.hash='#notetaker'; document.querySelector('[name="title"]').focus();
     }catch(e){ showMsg(e.message||'Failed to save',false); }
   }
   async function finalizePublish(fields, num){
@@ -437,13 +440,8 @@ window.pushUserTagStats = async function pushUserTagStats() {
       upsertNote(note); loadedId=note.id; $('#hiddenKeepId').value='1';
       showMsg(`Published ✓ (${note.num})`); refreshRecent(); renderGraph();
       await (window.pushUserTagStats?.());
-
-      if (!window.WillowLocalAgents) {
-        agentMsg('Preparing local agents…');
-        await new Promise(res=>window.addEventListener('willow-agents-ready', res, { once:true }));
-      }
-      await runAgentsForNote(note, ["interconnectedness","historian","blind_spot"]);
-      location.hash='#graph'; setTimeout(()=>pulseNode(note.id),90);
+      // NEW: after placing, clear and prepare a new note
+      clearForm(); location.hash='#notetaker'; document.querySelector('[name="title"]').focus();
     }catch(e){ showMsg(e.message||'Failed to publish',false); }
   }
 
@@ -451,6 +449,7 @@ window.pushUserTagStats = async function pushUserTagStats() {
   async function publish(e){ e.preventDefault(); const num=$('#numInput').value.trim(), f=gatherFields(); try{ validateFields(f); if(!num){ beginPlacement('publish',f); return; } await finalizePublish(f,num); } catch(err){ showMsg(err.message||'Failed to publish',false); } }
   function deleteLoaded(){ if(!loadedId){ showMsg('No loaded note to delete',false); return; } if(!confirm('Delete this note?')) return; saveNotes(loadNotes().filter(n=>n.id!==loadedId)); saveLinks(loadLinks().filter(e=> e.from!==loadedId && e.to!==loadedId)); clearForm(); refreshRecent(); renderGraph(); showMsg('Deleted',true); window.pushUserTagStats?.(); }
 
+  // Clicking a note: either load it or use as placement parent
   $('#recentList').addEventListener('click',e=>{
     const btn=e.target.closest('.note-link'); if(!btn) return;
     const id=btn.getAttribute('data-id');
@@ -513,13 +512,13 @@ window.pushUserTagStats = async function pushUserTagStats() {
     }
     if(proposed.length){
       sections.push(`<div class="prop-card"><strong>Proposed Notes</strong>${
-        proposed.map((p,i)=>`<div class="prop-card"><div><strong>${escapeHtml(p.title||'Proposed')}</strong></div><div class="muted">${(p.tags||[]).join(', ')||'—'}</div><p style="margin-top:6px;">${escapeHtml(p.content||'')}</p><div class="row"><button class="btn primary" data-accept-prop="${i}">Accept (publish)</button><button class="btn" data-reject-prop="${i}">Reject</button></div></div>`).join('')}
+        proposed.map((p,i)=>`<div class="prop-card"><div><strong>${escapeHtml(p.title||'Proposed')}</strong></div><div class="muted">${(p.tags||[]).join(', ')||'—'}</div><p style="margin-top:6px;">${escapeHtml(p.content||'')}</p><div class="row"><button class="btn primary" data-accept-prop="${i}">Accept (choose placement)</button><button class="btn" data-reject-prop="${i}">Reject</button></div></div>`).join('')}
       </div>`);
     }
     box.innerHTML = sections.join('') || '<div class="muted">No outputs.</div>';
     if(linkCandidate){ document.getElementById('acceptTopLink')?.addEventListener('click', ()=>{ acceptLinkSuggestion(linkCandidate); document.getElementById('linkSuggestion')?.remove(); }); }
     const propArr=proposed.slice();
-    box.querySelectorAll('[data-accept-prop]').forEach(btn=>btn.addEventListener('click',()=>{ const idx=parseInt(btn.getAttribute('data-accept-prop'),10); acceptProposedNote(propArr[idx], context); btn.closest('.prop-card')?.remove(); }));
+    box.querySelectorAll('[data-accept-prop]').forEach(btn=>btn.addEventListener('click',()=>{ const idx=parseInt(btn.getAttribute('data-accept-prop'),10); acceptProposedNote(propArr[idx], context); }));
     box.querySelectorAll('[data-reject-prop]').forEach(btn=>btn.addEventListener('click',ev=>ev.target.closest('.prop-card').remove()));
   }
   function acceptLinkSuggestion(e){
@@ -528,21 +527,15 @@ window.pushUserTagStats = async function pushUserTagStats() {
       edges.push({from:e.from,to:e.to,type:e.type,confidence:e.confidence||0}); saveLinks(edges); renderGraph(); agentMsg('Link added');
     } else { agentMsg('Link already exists'); }
   }
+  // NEW: accepting a proposed note now opens placement mode
   function acceptProposedNote(p, context){
-    let num;
-    if (p.__agent === 'blind_spot') {
-      num = nextRoot(); // always new path
-    } else if (context) {
-      num = suggestChild(context.num) || (/\d$/.test(context.num)?context.num+'a':context.num+'1');
-    } else {
-      num = nextRoot();
-    }
-    while(loadNotes().some(n=>n.num===num)) num = suggestSibling(num) || (/[a-z]$/.test(num)?num+'a':num+'1');
-    let content=p.content||'';
-    if ((p.tags||[]).includes('analogy')) content = stripHistorianLead(content);
-    const note={ id:newUID(), userId: window.currentUserId || null, num, title:p.title||'Proposed', content, tags:(p.tags||[]), source:'', createdAt:now(), updatedAt:now(), published:true };
-    upsertNote(note); refreshRecent(); renderGraph(); agentMsg(`Published proposed note as ${note.num}`); setTimeout(()=>pulseNode(note.id),90);
-    window.pushUserTagStats?.();
+    const fields = {
+      title: p.title || 'Proposed',
+      content: (p.tags||[]).includes('analogy') ? stripHistorianLead(p.content||'') : (p.content||''),
+      tags: p.tags || [],
+      source: ''
+    };
+    beginPlacement('publish', fields);
   }
 
   const svg=document.getElementById('kg'), vp=document.getElementById('vp'); const view={x:0,y:0,k:1};
@@ -591,7 +584,6 @@ window.pushUserTagStats = async function pushUserTagStats() {
   refreshRecent(); renderGraph();
 </script>
 
-<!-- Forecasts (user voting once) -->
 <script>
 const LS_FC = 'willow_forecasts';
 const LS_VOTES = 'willow_votes';
@@ -623,7 +615,6 @@ function renderSparkline(values, w=120, h=28) {
   const pts = values.map((p,i)=>`${(i*step).toFixed(1)},${(h - (p-min)/(max-min)*h).toFixed(1)}`).join(' ');
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="#4f46e5" stroke-width="2" points="${pts}"/></svg>`;
 }
-
 function combinedEvents(f, votes) {
   const ev = [];
   (f.updates||[]).forEach(u => ev.push({ t: u.t || u.time || f.updated_at || new Date().toISOString(), p: u.p }));
@@ -668,6 +659,13 @@ function renderForecastCardUser(f, votesMap){
         <button class="btn primary voteSubmit">Submit vote</button>
       </div>`}
     ` : ``}
+    <div class="prop-card" style="margin-top:10px;">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <strong>Votes</strong>
+        <button class="btn viewVotesBtn">View votes</button>
+      </div>
+      <div class="votesBox muted" style="display:none;margin-top:6px;">Loading…</div>
+    </div>
   </div>`;
 }
 
@@ -704,13 +702,67 @@ function refreshForecastListUser(){
         console.error(e);
       }
     });
+
+    // NEW: view votes for all users (try RPC with emails; fallback to user_id)
+    const btn = card.querySelector('.viewVotesBtn');
+    const boxV = card.querySelector('.votesBox');
+    let open = false, loaded = false;
+    btn?.addEventListener('click', async ()=>{
+      open = !open;
+      boxV.style.display = open ? 'block' : 'none';
+      btn.textContent = open ? 'Hide votes' : 'View votes';
+      if (!open || loaded) return;
+      try {
+        // try RPC first (may fail if restricted)
+        const sb = window.__supa;
+        let rows = [];
+        try {
+          const { data, error } = await sb.rpc('admin_votes_with_emails', { fid: id });
+          if (error) throw error;
+          rows = data || [];
+        } catch {
+          // fallback: raw votes with user_id only
+          const { data, error } = await sb.from('forecast_votes').select('*').eq('forecast_id', id);
+          if (error) throw error;
+          rows = (data||[]).map(v => ({ email: v.user_id, user_id: v.user_id, prob: v.prob, rationale: v.rationale, created_at: v.created_at }));
+        }
+        if (!rows.length) { boxV.innerHTML = '<div class="muted">No votes yet.</div>'; loaded = true; return; }
+        rows.sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
+        const html = `
+          <div style="overflow:auto">
+            <table style="width:100%;border-collapse:collapse">
+              <thead>
+                <tr>
+                  <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">User</th>
+                  <th style="text-align:right;border-bottom:1px solid var(--line);padding:4px 0">Prob</th>
+                  <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">Why</th>
+                  <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map(v=>`
+                  <tr>
+                    <td>${(v.email || '').replace(/</g,'&lt;') || (v.user_id||'').slice(0,8)}</td>
+                    <td style="text-align:right;">${Math.round((v.prob||0.5)*100)}%</td>
+                    <td>${(v.rationale||'').replace(/</g,'&lt;')}</td>
+                    <td>${new Date(v.created_at).toLocaleString()}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>`;
+        boxV.innerHTML = html;
+        loaded = true;
+      } catch (e) {
+        console.error('[Willow] view votes error', e);
+        boxV.innerHTML = '<div class="muted">Unable to load votes.</div>';
+      }
+    });
   });
 }
 </script>
 <script type="module">
   const sb = window.__supa;
-
-  // snake->camel for local storage
   function fromDbRow(r){
     return {
       id: r.id,
@@ -727,7 +779,6 @@ function refreshForecastListUser(){
       updated_at: r.updated_at ?? new Date().toISOString()
     };
   }
-
   async function pullForecastsFromServer(){
     const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
     if(error){ console.warn('[Willow] pull forecasts error', error); return; }
@@ -748,9 +799,14 @@ function refreshForecastListUser(){
       .on('postgres_changes', { event: '*', schema: 'public', table: 'forecasts' }, (payload) => {
         const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
         const map=new Map(local.map(f=>[f.id,f]));
-        const row = payload.new || payload.old;
-        if(payload.eventType==='DELETE'){ map.delete(row.id); }
-        else { const f = fromDbRow(row); const cur=map.get(f.id); if(!cur || new Date(f.updated_at||0) >= new Date(cur.updated_at||0)) map.set(f.id, f); }
+        if (payload.eventType === 'DELETE') {
+          const row = payload.old; map.delete(row.id);
+        } else {
+          const row = payload.new;
+          const f = fromDbRow(row);
+          const cur=map.get(f.id);
+          if(!cur || new Date(f.updated_at||0) >= new Date(cur.updated_at||0)) map.set(f.id, f);
+        }
         localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
         try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
       })
