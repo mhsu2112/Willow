@@ -605,7 +605,7 @@ Context:
 ${ctx}`
   },
   historian: {
-    system: (ctx) => `You are the Historian Agent. Provide targeted historical analogies WITHOUT starting with "This reminds me of".
+    system: (ctx) => `You are the Historian Agent. You will use the users note and give historical background with dates and proper notation on it's implication.
 - Give 1–2 analogs with parallels and contrasts; finish with what to watch.
 - Offer ONE candidate note: include a 'Title:' line and 2–5 sentences body in the user's style.
 Context:
@@ -613,8 +613,8 @@ ${ctx}`
   },
   blind_spot: {
     system: (ctx) => `You are the Blind-Spot Agent. Introduce an orthogonal angle—something the user likely isn't tracking.
-- Do NOT reference existing note titles; invent a fresh, distinct topic.
-- Provide one actionable hypothesis and one falsifier.
+- Do NOT reference existing note titles; invent a fresh, distinct topic about the financial system in some way.
+- Provide one actionable hypothesis and one falsifier about this financial topic.
 - Offer ONE candidate note: include a 'Title:' line and 2–5 sentences body in the user's style.
 Context:
 ${ctx}`
