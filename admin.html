@@ -69,13 +69,18 @@
     anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlb2xrdHF4ZHhzdHdxZGlxemtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNjc0MjAsImV4cCI6MjA3MDk0MzQyMH0.Qt6wLLfR1QxbYGpq42t1uwpy5kDdqb_LN5-JA89Fj-U'
   };
 </script>
+
+<!-- Supabase client with headers -->
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
-  window.__supa = window.__supa || createClient(url, anon);
+  window.__supa = window.__supa || createClient(url, anon, {
+    auth: { persistSession: true, autoRefreshToken: true },
+    global: { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
+  });
 </script>
 
-<!-- Admin gate -->
+<!-- Admin gate (classic script; doesn't need Supabase) -->
 <script>
   const gate = document.getElementById('gate');
   const panel = document.getElementById('panel');
@@ -96,7 +101,7 @@
   if (localStorage.getItem('willow_admin_ok') === '1') openPanel();
 </script>
 
-<!-- Forecast core (admin) -->
+<!-- Forecast core (admin UI only; local store) -->
 <script>
 const LS_FC = 'willow_forecasts';
 const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
@@ -127,7 +132,7 @@ function renderSparkline(values, w=120, h=28) {
 }
 function renderForecastCard(f, votesById){
   const values = (f.updates||[]).map(u=>u.p);
-  const pStar = aggregateLogOdds(f.updates||[]) ?? (values.length ? values.at(-1) : 0.5);
+  const pStar = aggregateLogOdds(f.updates||[]) ?? (values.length ? values[values.length-1] : 0.5);
   const pct = Math.round((pStar||0.5)*100);
   const votes = (votesById && votesById.get(f.id)) ? votesById.get(f.id).length : 0;
   const status = f.status || 'open';
@@ -200,7 +205,7 @@ function refreshForecastList(votesById){
 
     const doResolve = async (outcomeYes) => {
       const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
-      const pStar = aggregateLogOdds(f.updates||[]) ?? (f.updates?.length ? f.updates.at(-1).p : 0.5);
+      const pStar = aggregateLogOdds(f.updates||[]) ?? (f.updates?.length ? f.updates[f.updates.length-1].p : 0.5);
       const score = brier(pStar, outcomeYes);
       f.status = 'resolved';
       f.resolution = { outcome: outcomeYes?'YES':'NO', t: new Date().toISOString(), comment: '' };
@@ -223,14 +228,13 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
 });
 </script>
 
-<!-- Supabase sync (pull + push + realtime) -->
+<!-- Supabase sync (admin) -->
 <script type="module">
   const sb = window.__supa;
   const syncMsgEl = document.getElementById('fcSyncMsg');
   const setSync = (t)=>{ if(syncMsgEl) syncMsgEl.textContent=t; };
 
   async function pullForecastsFromServer(){
-    if(!sb) return;
     const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
     if(error){ console.warn('[Willow] pull error', error); setSync('Cloud sync: error.'); return; }
     const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
@@ -242,7 +246,6 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
   }
 
   window.pushForecastToServer = async function(f){
-    if(!sb) return;
     try {
       const { error } = await sb.from('forecasts').upsert(f, { onConflict: 'id' });
       if(error){ console.warn('[Willow] upsert error', error); setSync('Cloud sync: upsert error.'); }
@@ -251,7 +254,6 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
   };
 
   async function pullVotes(){
-    if(!sb) return new Map();
     const { data, error } = await sb.from('forecast_votes').select('*');
     if (error) { console.warn('[Willow] pull votes error', error); return new Map(); }
     const map = new Map();
@@ -260,7 +262,6 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
   }
 
   function subscribeRealtime(){
-    if(!sb) return;
     sb.channel('willow-forecasts-admin')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'forecasts' }, (payload) => {
         const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
@@ -280,7 +281,7 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
       .subscribe();
   }
 
-  const _ = await pullForecastsFromServer();
+  await pullForecastsFromServer();
   const votesMap = await pullVotes(); try{ refreshForecastList(votesMap); }catch{}
   subscribeRealtime();
 </script>
@@ -289,7 +290,6 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
 <script type="module">
   const sb2 = window.__supa;
   async function fetchUserTagStats(){
-    if(!sb2) return [];
     const { data, error } = await sb2.from('user_tag_stats').select('most_tags, least_tags');
     if (error) { console.warn('[Willow] tag stats error', error); return []; }
     return data || [];
