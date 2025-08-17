@@ -70,7 +70,6 @@
   };
 </script>
 
-<!-- Supabase client with headers -->
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
@@ -80,28 +79,23 @@
   });
 </script>
 
-<!-- Admin gate -->
 <script>
   const gate = document.getElementById('gate');
   const panel = document.getElementById('panel');
   const gateMsgEl = document.getElementById('msg');
-
   function openPanel(){
     gate.style.display='none';
     panel.style.display='block';
     localStorage.setItem('willow_admin_ok','1');
   }
-
   document.getElementById('go').addEventListener('click', ()=>{
     const v = (document.getElementById('pw').value||'').trim();
     if (v === 'admin') openPanel();
     else { gateMsgEl.textContent='Wrong password'; gateMsgEl.className='pill'; }
   });
-
   if (localStorage.getItem('willow_admin_ok') === '1') openPanel();
 </script>
 
-<!-- Forecast helpers (local) -->
 <script>
 const LS_FC = 'willow_forecasts';
 const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
@@ -121,32 +115,31 @@ function aggregateLogOdds(updates, now=Date.now(), halfLifeDays=14, extremize=1.
   if (den === 0) return null;
   return invLogit((num/den) * extremize);
 }
-function brier(p, outcomeYes) { const y = outcomeYes ? 1 : 0; return (clamp(p) - y) ** 2; }
-function newForecastId() { const d=new Date(); return `F-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${Math.random().toString(36).slice(2,8)}`; }
-function upsertForecastLocal(f){ const all=loadForecasts(); const i=all.findIndex(x=>x.id===f.id); if(i>=0) all[i]=f; else all.push(f); saveForecasts(all); return f; }
 function renderSparkline(values, w=120, h=28) {
   if (!values?.length) return `<svg width="${w}" height="${h}"></svg>`;
   const min=0, max=1, step=w/(values.length-1||1);
   const pts = values.map((p,i)=>`${(i*step).toFixed(1)},${(h - (p-min)/(max-min)*h).toFixed(1)}`).join(' ');
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="#4f46e5" stroke-width="2" points="${pts}"/></svg>`;
 }
-function renderForecastCard(f, votesById){
+function newForecastId() { const d=new Date(); return `F-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${Math.random().toString(36).slice(2,8)}`; }
+function renderForecastCard(f){
   const values = (f.updates||[]).map(u=>u.p);
   const pStar = aggregateLogOdds(f.updates||[]) ?? (values.length ? values[values.length-1] : 0.5);
   const pct = Math.round((pStar||0.5)*100);
-  const votes = (votesById && votesById.get(f.id)) ? votesById.get(f.id).length : 0;
   const status = f.status || 'open';
+  const open = status === 'open';
   const closed = status === 'closed';
-  const open = status !== 'resolved';
   return `
   <div class="card" data-fid="${f.id}">
     <div class="row" style="justify-content:space-between;">
       <div>
         <strong>${f.title}</strong>
         <div class="muted">${f.resolution_criteria||''}</div>
-        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''} · Votes: ${votes}</div>
+        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}</div>
       </div>
-      <div>${renderSparkline(values)}</div>
+      <div>
+        ${renderSparkline(values)}
+      </div>
     </div>
     ${status === 'resolved' ? `
       <div class="row" style="margin-top:6px;">
@@ -166,16 +159,17 @@ function renderForecastCard(f, votesById){
       <div class="row" style="margin-top:8px;">
         <button class="btn primary fcUpdate" ${closed?'disabled':''}>Update</button>
         <button class="btn fcClose" ${closed?'disabled':''}>Close</button>
-        <button class="btn danger fcResolveYes" ${open?'':'disabled'}>Resolve YES</button>
-        <button class="btn danger fcResolveNo" ${open?'':'disabled'}>Resolve NO</button>
+        <button class="btn danger fcResolveYes">Resolve YES</button>
+        <button class="btn danger fcResolveNo">Resolve NO</button>
+        <button class="btn danger fcDelete" style="margin-left:auto;">Delete</button>
       </div>
     `}
   </div>`;
 }
-function refreshForecastList(votesById){
+function refreshForecastList(){
   const box = document.getElementById('fcList');
   const arr = loadForecasts().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1));
-  box.innerHTML = arr.length ? arr.map(f=>renderForecastCard(f, votesById||new Map())).join('') : '<div class="muted">No forecasts yet.</div>';
+  box.innerHTML = arr.length ? arr.map(renderForecastCard).join('') : '<div class="muted">No forecasts yet.</div>';
 
   box.querySelectorAll('.card[data-fid]').forEach(card=>{
     const id = card.getAttribute('data-fid');
@@ -194,27 +188,43 @@ function refreshForecastList(votesById){
       const rationale = (why? why.value.trim() : '');
       (f.updates ||= []).push({ t: new Date().toISOString(), p, rationale, by: 'admin' });
       f.updated_at = new Date().toISOString();
-      upsertForecastLocal(f); await pushForecastToServer(f); refreshForecastList();
+      saveForecasts(all); await pushForecastToServer(f); refreshForecastList();
     });
 
     card.querySelector('.fcClose')?.addEventListener('click', async ()=>{
       const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
       f.status = 'closed'; f.updated_at = new Date().toISOString();
-      upsertForecastLocal(f); await pushForecastToServer(f); refreshForecastList();
+      saveForecasts(all); await pushForecastToServer(f); refreshForecastList();
     });
 
     const doResolve = async (outcomeYes) => {
       const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
-      const pStar = aggregateLogOdds(f.updates||[]) ?? (f.updates?.length ? f.updates[f.updates.length-1].p : 0.5);
-      const score = (function(){ const y = outcomeYes ? 1 : 0; return (Math.min(.999, Math.max(.001, pStar)) - y) ** 2; })();
+      const pStar = (function(ev){ // aggregate over updates
+        if (!(ev?.length)) return 0.5;
+        return aggregateLogOdds(ev) ?? ev[ev.length-1].p ?? 0.5;
+      })(f.updates||[]);
+      const y = outcomeYes ? 1 : 0; const score = (Math.min(.999, Math.max(.001, pStar)) - y) ** 2;
       f.status = 'resolved';
       f.resolution = { outcome: outcomeYes?'YES':'NO', t: new Date().toISOString(), comment: '' };
       f.metrics = { brier: score };
       f.updated_at = new Date().toISOString();
-      upsertForecastLocal(f); await pushForecastToServer(f); refreshForecastList();
+      saveForecasts(all); await pushForecastToServer(f); refreshForecastList();
     };
     card.querySelector('.fcResolveYes')?.addEventListener('click', ()=>doResolve(true));
     card.querySelector('.fcResolveNo')?.addEventListener('click', ()=>doResolve(false));
+
+    // NEW: delete forecast (admin)
+    card.querySelector('.fcDelete')?.addEventListener('click', async ()=>{
+      if (!confirm('Delete this forecast? This cannot be undone.')) return;
+      try {
+        const { error } = await window.__supa.from('forecasts').delete().eq('id', id);
+        if (error) throw error;
+        saveForecasts(loadForecasts().filter(f=>f.id!==id));
+        refreshForecastList();
+      } catch (e) {
+        alert('Delete failed. See console.'); console.error(e);
+      }
+    });
   });
 }
 document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
@@ -222,24 +232,22 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
   const crit = document.getElementById('fcCriteria').value.trim();
   const close = document.getElementById('fcClose').value ? new Date(document.getElementById('fcClose').value).toISOString() : null;
   const f = { id:newForecastId(), title, resolution_criteria:crit, closeAt:close, resolveBy:null, status:'open', tags:[], linkedNoteIds:[], updates:[], metrics:{}, resolution:null, updated_at:new Date().toISOString() };
-  upsertForecastLocal(f); await pushForecastToServer(f);
+  const arr = loadForecasts(); arr.push(f); saveForecasts(arr); await pushForecastToServer(f);
   document.getElementById('fcTitle').value=''; document.getElementById('fcCriteria').value=''; document.getElementById('fcClose').value='';
   refreshForecastList();
 });
 </script>
 
-<!-- Supabase sync (admin) with camel<->snake mapping -->
 <script type="module">
   const sb = window.__supa;
   const syncMsgEl = document.getElementById('fcSyncMsg');
   const setSync = (t)=>{ if(syncMsgEl) syncMsgEl.textContent=t; };
 
-  // mappers
   function toDbRow(f){
     return {
       id: f.id,
       title: f.title,
-      resolution_criteria: f.resolution_criteria ?? f.resolutionCriteria ?? null,
+      resolution_criteria: f.resolution_criteria ?? null,
       close_at: f.closeAt ?? null,
       resolve_by: f.resolveBy ?? null,
       status: f.status ?? 'open',
@@ -288,22 +296,14 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
     } catch (e) { console.warn('[Willow] push failed', e); setSync('Cloud sync: offline.'); }
   };
 
-  async function pullVotes(){
-    const { data, error } = await sb.from('forecast_votes').select('*');
-    if (error) { console.warn('[Willow] pull votes error', error); return new Map(); }
-    const map = new Map();
-    (data||[]).forEach(v=>{ if(!map.has(v.forecast_id)) map.set(v.forecast_id, []); map.get(v.forecast_id).push(v); });
-    return map;
-  }
-
   function subscribeRealtime(){
     sb.channel('willow-forecasts-admin')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'forecasts' }, (payload) => {
         const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
         const map=new Map(local.map(f=>[f.id,f]));
-        const row = payload.new || payload.old;
-        if(payload.eventType==='DELETE'){ map.delete(row.id); }
+        if(payload.eventType==='DELETE'){ const row = payload.old; map.delete(row.id); }
         else {
+          const row = payload.new;
           const fx = fromDbRow(row);
           const cur=map.get(fx.id);
           if(!cur || new Date(fx.updated_at||0) >= new Date(cur.updated_at||0)) map.set(fx.id, fx);
@@ -311,18 +311,13 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
         localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
         try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecast_votes' }, async () => {
-        try { const votesMap = await pullVotes(); refreshForecastList(votesMap); } catch {}
-      })
       .subscribe();
   }
 
   await pullForecastsFromServer();
-  const votesMap = await pullVotes(); try{ refreshForecastList(votesMap); }catch{}
   subscribeRealtime();
 </script>
 
-<!-- AI suggestions from tag stats -->
 <script type="module">
   const sb2 = window.__supa;
   async function fetchUserTagStats(){
@@ -365,92 +360,6 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
   document.getElementById('genSuggest')?.addEventListener('click', async ()=>{
     const rows = await fetchUserTagStats(); const tags = aggregatePopularTags(rows); renderSuggestions(tags);
   });
-</script>
-
-<!-- Admin: view votes with email (RPC) -->
-<script type="module">
-  const sb = window.__supa;
-
-  function wireVoteViews() {
-    document.querySelectorAll('#fcList .card[data-fid]').forEach((card) => {
-      if (card.__votesWired) return; card.__votesWired = true;
-
-      const topRow = card.querySelector('.row'); // header row
-      const btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.textContent = 'View votes';
-      btn.style.marginLeft = 'auto';
-
-      const box = document.createElement('div');
-      box.className = 'prop-card';
-      box.style.display = 'none';
-      box.innerHTML = '<div class="muted">Loading…</div>';
-
-      topRow.appendChild(btn);
-      card.appendChild(box);
-
-      let open = false, loaded = false;
-      btn.addEventListener('click', async () => {
-        open = !open;
-        box.style.display = open ? 'block' : 'none';
-        btn.textContent = open ? 'Hide votes' : 'View votes';
-        if (!open || loaded) return;
-
-        const fid = card.getAttribute('data-fid');
-        try {
-          const { data, error } = await sb.rpc('admin_votes_with_emails', { fid });
-          if (error) throw error;
-
-          if (!data || data.length === 0) {
-            box.innerHTML = '<div class="muted">No votes yet or you are not an admin.</div>';
-            loaded = true;
-            return;
-          }
-
-          const rows = data
-            .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
-            .map(v => `
-              <tr>
-                <td>${(v.email || '').replace(/</g,'&lt;') || v.user_id}</td>
-                <td style="text-align:right;">${Math.round(v.prob * 100)}%</td>
-                <td>${(v.rationale || '').replace(/</g,'&lt;')}</td>
-                <td>${new Date(v.created_at).toLocaleString()}</td>
-              </tr>
-            `).join('');
-
-          box.innerHTML = `
-            <div style="overflow:auto">
-              <table style="width:100%;border-collapse:collapse">
-                <thead>
-                  <tr>
-                    <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">User (email)</th>
-                    <th style="text-align:right;border-bottom:1px solid var(--line);padding:4px 0">Prob</th>
-                    <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">Why</th>
-                    <th style="text-align:left;border-bottom:1px solid var(--line);padding:4px 0">Time</th>
-                  </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-              </table>
-            </div>
-          `;
-          loaded = true;
-        } catch (e) {
-          console.error('[Willow] votes view error', e);
-          box.innerHTML = '<div class="muted">Unable to load votes (are you admin?).</div>';
-        }
-      });
-    });
-  }
-
-  // First wire, then re-wire on refreshes
-  wireVoteViews();
-  const _origRefresh = window.refreshForecastList;
-  if (typeof _origRefresh === 'function') {
-    window.refreshForecastList = function(...args) {
-      _origRefresh.apply(this, args);
-      wireVoteViews();
-    };
-  }
 </script>
 </body>
 </html>
