@@ -11,6 +11,15 @@
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
   header{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);z-index:10}
   nav{max-width:1000px;margin:auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+  .chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;
+        color:var(--ink);text-decoration:none;cursor:pointer;box-shadow:0 1px 0 rgba(0,0,0,.02);transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease}
+  .chip:hover{transform:translateY(-1px);box-shadow:0 6px 14px rgba(2,6,23,.06);border-color:#d0d7e2}
+  .chip:active{transform:translateY(0)}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chip.badge{padding:6px 10px;border-color:#cfd8e3;color:#64748b;cursor:default}
+  .chip.accent{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chip .emoji{filter:saturate(0.9)}
   main{max-width:1000px;margin:auto;padding:20px 16px 80px}
   h1,h2{margin:0} h2{font-size:20px;margin-top:24px}
   .grid{display:grid;gap:16px}
@@ -32,8 +41,6 @@
   .linkbtn{background:none;border:none;padding:0;margin:0;cursor:pointer;color:inherit;text-align:left}
   svg text{font:12px ui-sans-serif,system-ui;fill:#334155}
   .edge-dashed{stroke-dasharray:4 4}
-  .agent-tag{border:1px solid var(--line);border-radius:999px;padding:4px 10px}
-  .agent-on{background:var(--accent-soft)}
   .prop-card{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px}
   .place-banner{display:none;background:var(--accent-soft);border:1px dashed var(--accent);color:#312e81;padding:10px 12px;border-radius:10px;align-items:center;justify-content:space-between}
   .place-mode .place-banner{display:flex}
@@ -43,17 +50,25 @@
   .place-mode .place-target{display:block}
   .place-newroot{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border:2px dashed var(--accent);border-radius:12px;background:#fff}
   .place-mode svg g[data-id] circle{stroke:var(--accent);stroke-width:3px}
+  .chat{border:1px solid var(--line);border-radius:12px;padding:10px;height:220px;overflow:auto;background:#fff}
+  .bubble{padding:8px 10px;border-radius:10px;margin:6px 0;max-width:100%;white-space:pre-wrap}
+  .bubble.user{background:#eef2ff;align-self:flex-end}
+  .bubble.bot{background:#f1f5f9}
+  .chat .bubble small{display:block;color:#64748b;margin-top:4px}
 </style>
 </head>
 <body>
 <header>
   <nav>
-    <div class="row" style="gap:10px;"><div style="font-size:22px;">🌿</div><strong>Willow</strong></div>
-    <div class="row">
-      <a href="#notetaker">Notetaker</a>
-      <a href="#graph" style="margin-left:10px">Graph</a>
-      <a href="forecasts.html" style="margin-left:10px">Forecasts</a>
-      <button id="newNoteBtn" class="btn" style="margin-left:10px">New Note</button>
+    <div class="chips">
+      <div style="font-size:22px;">🌿</div><strong>Willow</strong>
+    </div>
+    <div class="chips" id="navRight">
+      <a class="chip active" href="#notetaker">📝 Notes</a>
+      <a class="chip" href="#graph">📈 Graph</a>
+      <a class="chip" href="forecasts.html">🎯 Forecasts</a>
+      <a class="chip" href="admin.html">🛠️ Admin</a>
+      <button id="newNoteBtn" class="chip accent">🆕 New Note</button>
     </div>
   </nav>
 </header>
@@ -82,22 +97,50 @@
           <span id="saveMsg" class="muted"></span>
         </div>
 
-        <div class="card" style="margin-top:16px;">
-          <div class="row" style="justify-content:space-between;">
-            <strong>AI Agents (Local)</strong>
-            <span class="muted">Runs in your browser.</span>
+        <!-- AI Agents (Chat) -->
+        <div class="card" id="agentsCard" style="margin-top:16px;">
+          <div class="row" style="justify-content:space-between; align-items:center;">
+            <strong>AI Agents (Local Chat)</strong>
+            <div class="row">
+              <select id="modelPicker" title="Model"></select>
+              <button type="button" id="loadModelBtn" class="btn">Load Model</button>
+            </div>
           </div>
-          <div class="row" id="agentToggles" style="margin-top:8px;">
-            <button type="button" data-agent="interconnectedness" class="agent-tag agent-on">Interconnectedness</button>
-            <button type="button" data-agent="historian" class="agent-tag agent-on">Historian</button>
-            <button type="button" data-agent="blind_spot" class="agent-tag agent-on">Blind-Spot</button>
+          <div class="muted" style="margin-top:6px;">Runs in-browser via WebGPU. First load downloads the model (cached after).</div>
+          <div class="row" style="margin-top:10px;">
+            <button class="btn" data-tab="interconnectedness">Interconnectedness</button>
+            <button class="btn" data-tab="historian">Historian</button>
+            <button class="btn" data-tab="blind_spot">Blind-Spot</button>
           </div>
-          <div class="row" style="margin-top:8px;">
-            <button type="button" id="preloadModels" class="btn">Preload Model</button>
-            <button type="button" id="runAgents" class="btn primary">Run Agents</button>
-            <span id="agentMsg" class="muted"></span>
+          <div id="agentPanels" style="margin-top:10px;">
+            <div class="agent-panel" data-panel="interconnectedness" style="display:block">
+              <div class="chat" id="chat-interconnectedness"></div>
+              <div class="row" style="margin-top:8px;">
+                <input id="inp-interconnectedness" placeholder="Ask about linkages or type '.' to analyze this note…" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px"/>
+                <button class="btn primary" data-send="interconnectedness">Send</button>
+                <button class="btn" data-to-note="interconnectedness">Send to Notetaker</button>
+                <button class="btn" data-accept="interconnectedness">Accept (choose placement)</button>
+              </div>
+            </div>
+            <div class="agent-panel" data-panel="historian" style="display:none">
+              <div class="chat" id="chat-historian"></div>
+              <div class="row" style="margin-top:8px;">
+                <input id="inp-historian" placeholder='Ask for historical analogs (e.g., "compare with prior sovereign episodes")' style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px"/>
+                <button class="btn primary" data-send="historian">Send</button>
+                <button class="btn" data-to-note="historian">Send to Notetaker</button>
+                <button class="btn" data-accept="historian">Accept (choose placement)</button>
+              </div>
+            </div>
+            <div class="agent-panel" data-panel="blind_spot" style="display:none">
+              <div class="chat" id="chat-blind_spot"></div>
+              <div class="row" style="margin-top:8px;">
+                <input id="inp-blind_spot" placeholder="Ask for orthogonal angles / overlooked domains" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:10px"/>
+                <button class="btn primary" data-send="blind_spot">Send</button>
+                <button class="btn" data-to-note="blind_spot">Send to Notetaker</button>
+                <button class="btn" data-accept="blind_spot">Accept (choose placement)</button>
+              </div>
+            </div>
           </div>
-          <div id="agentResults" style="margin-top:10px;"></div>
         </div>
       </form>
 
@@ -120,6 +163,9 @@
   <section id="graph">
     <h2 style="margin-top:24px;">Graph (Published Notes)</h2>
     <p class="muted">Scroll to zoom • drag to pan • double-click to reset. Solid edges = tag overlap; dashed = accepted links.</p>
+    <div class="card" style="margin:12px 0;">
+      <span class="muted">Semantic Axes: x⁺ = <strong>housing</strong> ↔ x⁻ = <strong>technology</strong>, y⁺ = <strong>policy</strong> ↔ y⁻ = <strong>energy</strong></span>
+    </div>
     <div class="grid" style="grid-template-columns:2fr 1fr; margin-top:12px;">
       <div class="card">
         <svg id="kg" viewBox="0 0 800 450" style="width:100%;height:420px;">
@@ -135,13 +181,13 @@
         </ul>
         <div class="row" style="margin-top:10px;">
           <button id="rebuild" class="btn">Rebuild Graph</button>
+          <button id="fitView" class="btn">Fit to View</button>
         </div>
       </div>
     </div>
   </section>
 </main>
 
-<!-- Supabase project config -->
 <script>
   window.WILLOW_CFG = {
     url: 'https://seolktqxdxstwqdiqzke.supabase.co',
@@ -149,7 +195,6 @@
   };
 </script>
 
-<!-- Supabase client (no global Authorization header) -->
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
@@ -174,16 +219,20 @@
   else {
     window.currentUserId = session.user.id;
     window.currentUserEmail = session.user.email;
-    const nav = document.querySelector('nav .row:last-child');
-    const badge = document.createElement('span'); badge.className='pill'; badge.textContent=session.user.email||session.user.id.slice(0,8);
-    const out = document.createElement('button'); out.className='btn'; out.textContent='Sign out';
+    const nav = document.getElementById('navRight');
+    const badge = document.createElement('span');
+    badge.className='chip badge';
+    badge.textContent=session.user.email||session.user.id.slice(0,8);
+    const out = document.createElement('button');
+    out.className='chip';
+    out.textContent='Sign out';
     out.onclick = async ()=>{ try{ await (window.pushUserTagStats?.()); }catch{} await supa.auth.signOut(); location.href='auth.html'; };
     nav.appendChild(badge); nav.appendChild(out);
     try{ await (window.pushUserTagStats?.()); }catch{}
   }
 </script>
 
-<!-- Transformers loader + Agents (same as previous message) -->
+<!-- Embedding model (Xenova) for vector layout -->
 <script type="module">
 (async () => {
   async function loadTransformers() {
@@ -205,116 +254,50 @@
     let embedder = null;
     async function ensureEmbedder(){
       if (embedder) return embedder;
-      const msg=document.getElementById('agentMsg'); if(msg) msg.textContent='Downloading embedding model… (one-time)';
+      const el = document.querySelector('#graph .muted');
+      if (el) el.textContent = 'Loading embedding model (one-time)…';
       embedder = await pipeline('feature-extraction', EMBED_MODEL, { quantized:true });
-      if(msg) msg.textContent='Model ready.'; return embedder;
+      if (el) el.textContent = 'Scroll to zoom • drag to pan • double-click to reset. Solid edges = tag overlap; dashed = accepted links.';
+      return embedder;
     }
-    window.__willow_transformers = { pipeline, env, ensureEmbedder };
-    window.dispatchEvent(new Event('willow-transformers-ready'));
+    window.__willow_embedder = { ensureEmbedder };
+    window.dispatchEvent(new Event('willow-embedder-ready'));
   } catch (err) {
     console.error('[Willow] transformers loader failed:', err);
-    window.__willow_transformers = null;
-    window.dispatchEvent(new Event('willow-transformers-ready'));
+    window.__willow_embedder = null;
+    window.dispatchEvent(new Event('willow-embedder-ready'));
   }
 })();
 </script>
 
-<script type="module">
-(function(){
-  function defineAgents(){
-    const api = window.__willow_transformers;
-    if (!api) { console.error('[Willow] transformers not available'); return; }
-    const { ensureEmbedder } = api;
-
-    const BS_SEED_KEY = "willow_blindspot_seeds";
-    function bsSeedCounts(){ try{ return JSON.parse(localStorage.getItem(BS_SEED_KEY)||"{}"); } catch { return {}; } }
-    function bsSeedBump(tag){ const m=bsSeedCounts(); m[tag]=(m[tag]||0)+1; localStorage.setItem(BS_SEED_KEY, JSON.stringify(m)); }
-    const ORTHO_SEEDS = [
-      { tag:"demographics", title:"Demographic pressure", hint:"aging, migration, labor share, dependency ratios" },
-      { tag:"geopolitics",  title:"Geopolitical channel", hint:"sanctions, trade fragmentation, defense outlays" },
-      { tag:"energy",       title:"Energy & commodities", hint:"price shocks, supply elasticity, passthrough" },
-      { tag:"plumbing",     title:"Market plumbing",     hint:"collateral chains, settlement frictions, fails" },
-      { tag:"tech",         title:"Tech infra & data",   hint:"cloud spend, outages, automation, inference costs" },
-      { tag:"regulation",   title:"Legal/regulatory",    hint:"capital rules, reporting, enforcement lags" },
-      { tag:"climate",      title:"Climate & weather",   hint:"physical risk, transition paths, insurance" },
-      { tag:"housing",      title:"Housing dynamics",    hint:"construction pipeline, rents, land use" }
-    ];
-    function analyzeStyle(t){
-      t=(t||'').trim(); const sentences=t.split(/[.!?]+/).filter(Boolean);
-      const avg = sentences.length ? Math.round(t.length / sentences.length) : 80;
-      const short = avg < 120; const first = /\b(I|we|my|our|I'm|we're)\b/i.test(t);
-      const bullets = /^\s*[-*•]/m.test(t); return { short, firstPerson:first, bullets };
-    }
-    function chooseSeed(note){
-      const text=(note.title+' '+note.content).toLowerCase(); const counts=bsSeedCounts();
-      const scored=ORTHO_SEEDS.map(s=>{const overlap=text.includes(s.tag)?1:0; const used=counts[s.tag]||0; return {s,score:(1-overlap)*10-used}}).sort((a,b)=>b.score-a.score);
-      const pick=scored[0]?.s||ORTHO_SEEDS[0]; bsSeedBump(pick.tag); return pick;
-    }
-
-    window.WillowLocalAgents = {
-      preload: ensureEmbedder,
-      async interconnectedness(note, notes){
-        const others=(notes||[]).filter(n=>n.id!==note.id);
-        if(!others.length) return {links:[],proposed_notes:[],feedback:"No other notes yet."};
-        try{
-          const e=await ensureEmbedder();
-          const q=await e(note.content,{pooling:'mean',normalize:true});
-          const qv=q.data || q;
-          const vecs=await Promise.all(others.map(n=>e(n.content,{pooling:'mean',normalize:true})));
-          const links=others.map((n,i)=>{
-            const ov=vecs[i].data || vecs[i];
-            let s=0,na=0,nb=0; for (let k=0;k<qv.length;k++){ s+=qv[k]*ov[k]; na+=qv[k]*qv[k]; nb+=ov[k]*ov[k]; }
-            const sim01 = s/(Math.sqrt(na)*Math.sqrt(nb)||1)*0.5+0.5;
-            const A=new Set(note.tags||[]), B=new Set(n.tags||[]); const inter=[...A].filter(x=>B.has(x)).length; const uni=new Set([...A,...B]).size||1; const jacc=inter/uni;
-            const score=0.7*sim01+0.3*jacc; const type=inter>0?'thematic':'related';
-            return {from:note.id,to:n.id,type,confidence:+score.toFixed(3)};
-          }).sort((a,b)=>b.confidence-a.confidence);
-          return {links,proposed_notes:[],feedback:"Semantic similarity + tag overlap."};
-        }catch(err){
-          const overlap=(a=[],b=[])=>a.filter(t=>b.includes(t)).length;
-          const ranked=(notes||[]).map(n=>({n,score:overlap(note.tags,n.tags)})).sort((x,y)=>y.score-x.score);
-          const links=ranked.filter(r=>r.score>0).map(r=>({from:note.id,to:r.n.id,type:'thematic',confidence:Math.min(0.95,0.6+r.score*0.1)}));
-          return {links,proposed_notes:[],feedback:"Heuristic (tags only)."};
-        }
-      },
-      async blind_spot(note){
-        const style=analyzeStyle(note.content); const seed=chooseSeed(note); const who=style.firstPerson?'I':'We';
-        const topic=(note.title||'this topic').toLowerCase();
-        const body= style.bullets
-          ? `- ${seed.title}\n- Hypothesis: ${seed.tag} materially shapes ${topic} through second-order channels.\n- Channels: incentives, balance-sheet transmission, timing.\n- Evidence: ${seed.hint}.\n- What would falsify?`
-          : `${who} suspect ${seed.tag} materially shapes ${topic} via second-order channels. Consider evidence via ${seed.hint}. What would falsify this?`;
-        return { links:[], proposed_notes:[{ title:seed.title, content:body, tags:[seed.tag] }], feedback:"Blind-spot note (new path candidate)." };
-      },
-      async historian(note){
-        const text=(note.title+' '+note.content).toLowerCase();
-        const analogs=[
-          {k:/bank|liquidity|run|deposit|ccp|repo/, ex:"the 1907 Knickerbocker panic and the 2008 GFC liquidity spirals"},
-          {k:/debt|treasury|sovereign|fiscal/, ex:"the 1980s Latin-American debt crisis and the 2011 US debt-ceiling standoffs"},
-          {k:/inflation|prices|cpi|wage/, ex:"the 1970s inflation regime shifts"},
-          {k:/housing|mortgage|real estate/, ex:"the 2006–08 US housing cycle"},
-          {k:/tech|startup|venture|platform/, ex:"the late-1990s dot-com buildout"},
-          {k:/energy|oil|gas|commodity/, ex:"the 1973–79 oil shocks"},
-        ];
-        const m=analogs.find(a=>a.k.test(text));
-        const match = m ? m.ex : "the 1998 LTCM episode and the 2020 ‘dash for cash’";
-        const body=`This reminds me of ${match}. Similarities include leverage and nonlinear dynamics; differences include market structure and policy tools.`;
-        return { links:[], proposed_notes:[{ title:"Historian: analogs to study", content:body, tags:["analogy","monitoring"] }], feedback:"Historian preview uses ‘This reminds me of …’." };
-      }
-    };
-
-    window.dispatchEvent(new Event('willow-agents-ready'));
-    document.getElementById('preloadModels')?.addEventListener('click', async ()=>{
-      const m = window.__willow_transformers; if(!m){ document.getElementById('agentMsg').textContent='Loading library…'; return; }
-      await m.ensureEmbedder(); const el=document.getElementById('agentMsg'); if(el){ el.textContent='Model cached.'; setTimeout(()=>el.textContent='',1500); }
-    });
-  }
-  if (window.__willow_transformers) defineAgents();
-  else window.addEventListener('willow-transformers-ready', defineAgents, { once:true });
-})();
-</script>
-
-<!-- Notes, placement, graph, tag stats (unchanged functional core) -->
+<!-- Notes, placement, stats, and graph logic -->
 <script>
+  const LS_NOTES='willow_notes', LS_LINKS='willow_links';
+  const loadNotes=()=>{try{return JSON.parse(localStorage.getItem(LS_NOTES)||'[]')}catch{return[]}};
+  const saveNotes=a=>localStorage.setItem(LS_NOTES,JSON.stringify(a));
+  const loadLinks=()=>{try{return JSON.parse(localStorage.getItem(LS_LINKS)||'[]')}catch{return[]}};
+  const saveLinks=a=>localStorage.setItem(LS_LINKS,JSON.stringify(a));
+  const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+  const parseTags=s=>(s||'').split(',').map(t=>t.trim().toLowerCase()).filter(Boolean);
+  const escapeHtml=s=>String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const now=()=>new Date().toISOString();
+  const showMsg=(t,ok=true)=>{const el=$('#saveMsg'); el.textContent=t; el.className='muted '+(ok?'ok':'err'); setTimeout(()=>{el.textContent='';el.className='muted'},2200)}
+  const pad=n=>n.toString().padStart(2,'0');
+  function newUID(){ const d=new Date(); const id=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`; let cand=id,i=0; const ids=new Set(loadNotes().map(n=>n.id)); while(ids.has(cand)) cand=id+'-'+(++i); return cand; }
+
+  const isAlpha=s=>/^[a-z]+$/.test(s), isNum=s=>/^\d+$/.test(s);
+  function splitNum(num){ if(!num) return null; const s=num.toLowerCase(); const m0=s.match(/^\d+/); if(!m0) return null; const parts=[m0[0]]; let i=m0[0].length;
+    while(i<s.length){ const a=s.slice(i).match(/^[a-z]+/); if(a){parts.push(a[0]); i+=a[0].length; continue} const n=s.slice(i).match(/^\d+/); if(n){parts.push(n[0]); i+=n[0].length; continue} return null; } return parts; }
+  const joinParts=p=>p.join('');
+  function siblingsLastSegs(prefix,depth){ return loadNotes().map(n=>splitNum(n.num)).filter(p=>p&&p.length===depth&&joinParts(p.slice(0,depth-1))===prefix).map(p=>p[depth-1]); }
+  function childrenLastSegs(prefix,depth){ return loadNotes().map(n=>splitNum(n.num)).filter(p=>p&&p.length===depth+1&&joinParts(p.slice(0,depth))===prefix).map(p=>p[depth]); }
+  const alphaToNum=s=>{let n=0; for(const ch of s){n=n*26+(ch.charCodeAt(0)-96)} return n}, numToAlpha=n=>{let s=''; while(n>0){const r=(n-1)%26; s=String.fromCharCode(97+r)+s; n=Math.floor((n-1)/26)} return s};
+  function nextAlpha(segs){ if(!segs.length) return 'a'; let m=0; segs.forEach(x=>{ if(isAlpha(x)) m=Math.max(m,alphaToNum(x)); }); return numToAlpha(m+1); }
+  function nextNumeric(segs){ if(!segs.length) return '1'; let m=0; segs.forEach(x=>{ if(isNum(x)) m=Math.max(m,parseInt(x,10)); }); return String(m+1); }
+  function suggestChild(num){ const parts=splitNum(num); if(!parts) return ''; const prefix=joinParts(parts); const last=parts[parts.length-1]; const segs=childrenLastSegs(prefix,parts.length); const nxt=isNum(last)?nextAlpha(segs):nextNumeric(segs); return prefix+nxt; }
+  function suggestSibling(num){ const p=splitNum(num); if(!p) return ''; const prefix=joinParts(p.slice(0,-1)); const last=p[p.length-1]; const segs=siblingsLastSegs(prefix,p.length); const nxt=isAlpha(last)?nextAlpha(segs):nextNumeric(segs); return prefix+nxt; }
+  function nextRoot(){ const roots=loadNotes().map(n=>n.num).filter(p=>p&&/^\d+$/.test(p)).map(p=>parseInt(p,10)); const max=roots.length?Math.max(...roots):0; return String(max+1); }
+
   function notesForCurrentUser() {
     const all = (function(){ try { return JSON.parse(localStorage.getItem('willow_notes')||'[]'); } catch { return []; } })();
     const uid = window.currentUserId;
@@ -345,37 +328,6 @@
       window.dispatchEvent(new Event('willow-ready-stats'));
     } catch (e) { console.warn('[Willow] tag stats push failed:', e); }
   };
-</script>
-
-<script>
-  const LS_NOTES='willow_notes', LS_LINKS='willow_links';
-  const loadNotes=()=>{try{return JSON.parse(localStorage.getItem(LS_NOTES)||'[]')}catch{return[]}};
-  const saveNotes=a=>localStorage.setItem(LS_NOTES,JSON.stringify(a));
-  const loadLinks=()=>{try{return JSON.parse(localStorage.getItem(LS_LINKS)||'[]')}catch{return[]}};
-  const saveLinks=a=>localStorage.setItem(LS_LINKS,JSON.stringify(a));
-
-  const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
-  const parseTags=s=>(s||'').split(',').map(t=>t.trim().toLowerCase()).filter(Boolean);
-  const escapeHtml=s=>String(s).replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  const now=()=>new Date().toISOString();
-  const showMsg=(t,ok=true)=>{const el=$('#saveMsg'); el.textContent=t; el.className='muted '+(ok?'ok':'err'); setTimeout(()=>{el.textContent='';el.className='muted'},2200)};
-  const agentMsg=t=>{const el=$('#agentMsg'); el.textContent=t; setTimeout(()=>{el.textContent=''},3000)};
-  const pad=n=>n.toString().padStart(2,'0');
-  function newUID(){ const d=new Date(); const id=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`; let cand=id,i=0; const ids=new Set(loadNotes().map(n=>n.id)); while(ids.has(cand)) cand=id+'-'+(++i); return cand; }
-
-  const isAlpha=s=>/^[a-z]+$/.test(s), isNum=s=>/^\d+$/.test(s);
-  function splitNum(num){ if(!num) return null; const s=num.toLowerCase(); const m0=s.match(/^\d+/); if(!m0) return null; const parts=[m0[0]]; let i=m0[0].length; while(i<s.length){ const a=s.slice(i).match(/^[a-z]+/); if(a){parts.push(a[0]); i+=a[0].length; continue} const n=s.slice(i).match(/^\d+/); if(n){parts.push(n[0]); i+=n[0].length; continue} return null; } return parts; }
-  const joinParts=p=>p.join('');
-  function siblingsLastSegs(prefix,depth){ return loadNotes().map(n=>splitNum(n.num)).filter(p=>p&&p.length===depth&&joinParts(p.slice(0,depth-1))===prefix).map(p=>p[depth-1]); }
-  function childrenLastSegs(prefix,depth){ return loadNotes().map(n=>splitNum(n.num)).filter(p=>p&&p.length===depth+1&&joinParts(p.slice(0,depth))===prefix).map(p=>p[depth]); }
-  const alphaToNum=s=>{let n=0; for(const ch of s){n=n*26+(ch.charCodeAt(0)-96)} return n}, numToAlpha=n=>{let s=''; while(n>0){const r=(n-1)%26; s=String.fromCharCode(97+r)+s; n=Math.floor((n-1)/26)} return s};
-  function nextAlpha(segs){ if(!segs.length) return 'a'; let m=0; segs.forEach(x=>{ if(isAlpha(x)) m=Math.max(m,alphaToNum(x)); }); return numToAlpha(m+1); }
-  function nextNumeric(segs){ if(!segs.length) return '1'; let m=0; segs.forEach(x=>{ if(isNum(x)) m=Math.max(m,parseInt(x,10)); }); return String(m+1); }
-  function suggestChild(num){ const parts=splitNum(num); if(!parts) return ''; const prefix=joinParts(parts); const last=parts[parts.length-1]; const segs=childrenLastSegs(prefix,parts.length); const nxt=isNum(last)?nextAlpha(segs):nextNumeric(segs); return prefix+nxt; }
-  function suggestSibling(num){ const p=splitNum(num); if(!p) return ''; const prefix=joinParts(p.slice(0,-1)); const last=p[p.length-1]; const segs=siblingsLastSegs(prefix,p.length); const nxt=isAlpha(last)?nextAlpha(segs):nextNumeric(segs); return prefix+nxt; }
-  function nextRoot(){ const roots=loadNotes().map(n=>n.num).filter(p=>p&&/^\d+$/.test(p)).map(p=>parseInt(p,10)); const max=roots.length?Math.max(...roots):0; return String(max+1); }
-
-  (function migrate(){ const notes=loadNotes(); let changed=false; notes.forEach(n=>{ if(!n.id){n.id=newUID();changed=true;} }); if(changed) saveNotes(notes); })();
 
   let loadedId=null, placeMode=false, pendingAction=null, pendingFields=null;
 
@@ -383,7 +335,7 @@
     const ul=$('#recentList');
     const items=loadNotes().sort((a,b)=>(a.updatedAt||a.createdAt||'')>(b.updatedAt||b.createdAt||'')?-1:1).slice(0,14);
     ul.innerHTML = items.length
-      ? items.map(n=>`<li class="recent-item"><button class="linkbtn note-link" data-id="${escapeHtml(n.id)}"><strong>${escapeHtml(n.num||'—')}</strong> — ${escapeHtml(n.title)}</button> <span class="muted">(${n.published?'published':'draft'})</span></li>`).join('')
+      ? items.map(n=>`<li class="recent-item"><button class="linkbtn note-link" data-id="${escapeHtml(n.id)}"><strong>${escapeHtml(n.num||'—')}</strong> — <span class="note-title">${escapeHtml(n.title)}</span></button> <span class="muted">(${n.published?'published':'draft'})</span></li>`).join('')
       : '<li class="muted">No notes yet.</li>';
     if(placeMode) $$('#recentList .recent-item').forEach(li=>li.classList.add('placeable'));
   }
@@ -392,7 +344,7 @@
   function validateFields(f){ if(!f.title||!f.content) throw new Error('Title and Content are required.'); }
   function validateNumUnique(num, keepId){ const clash=loadNotes().some(n=>n.num===num && n.id!==keepId); if(clash) throw new Error(`Number ${num} already exists.`); }
   function upsertNote(note){ const list=loadNotes(); const i=list.findIndex(n=>n.id===note.id); if(i>=0) list[i]=note; else list.push(note); saveNotes(list); }
-  function loadNoteIntoForm(id){ const n=loadNotes().find(x=>x.id===id); if(!n){showMsg('Note not found',false);return;} loadedId=n.id; $('#numInput').value=n.num||''; $('#hiddenKeepId').value='1'; $('[name="title"]').value=n.title||''; $('[name="content"]').value=n.content||''; $('[name="tags"]').value=(n.tags||[]).join(', '); $('[name="source"]').value=n.source||''; location.hash='#notetaker'; showMsg(`Loaded ${n.num}`,true); }
+  function loadNoteIntoForm(id){ const n=loadNotes().find(x=>x.id===id); if(!n){showMsg('Note not found',false);return;} loadedId=n.id; $('#numInput').value=n.num||''; $('#hiddenKeepId').value='0'; $('[name="title"]').value=n.title||''; $('[name="content"]').value=n.content||''; $('[name="tags"]').value=(n.tags||[]).join(', '); $('[name="source"]').value=n.source||''; location.hash='#notetaker'; showMsg(`Loaded ${n.num}`,true); }
   function clearForm(){ $('#numInput').value=''; $('#hiddenKeepId').value='0'; $('[name="title"]').value=''; $('[name="content"]').value=''; $('[name="tags"]').value=''; $('[name="source"]').value=''; loadedId=null; }
 
   function togglePlacement(on){ placeMode=on; document.body.classList.toggle('place-mode',on); $$('#recentList .recent-item').forEach(li=>li.classList.toggle('placeable',on)); $('#newRootTarget').style.display=on?'block':'none'; $('#nextRootPreview').textContent=on?nextRoot():''; $('#placeBanner').style.display=on?'flex':'none'; }
@@ -408,9 +360,9 @@
   async function finalizeDraft(fields, num){
     try{
       validateFields(fields); validateNumUnique(num, $('#hiddenKeepId').value==='1'?loadedId:null);
-      const id = ($('#hiddenKeepId').value==='1' && loadedId) ? loadedId : newUID();
+      const id = (loadedId) ? loadedId : newUID();
       const note={ id, userId: window.currentUserId || null, num, ...fields, createdAt:now(), updatedAt:now(), published:false };
-      upsertNote(note); loadedId=note.id; $('#hiddenKeepId').value='1';
+      upsertNote(note); loadedId=note.id;
       showMsg(`Draft saved (${note.num})`); refreshRecent(); renderGraph();
       await (window.pushUserTagStats?.()); clearForm(); location.hash='#notetaker'; document.querySelector('[name="title"]').focus();
     }catch(e){ showMsg(e.message||'Failed to save',false); }
@@ -418,146 +370,434 @@
   async function finalizePublish(fields, num){
     try{
       validateFields(fields); validateNumUnique(num, $('#hiddenKeepId').value==='1'?loadedId:null);
-      const id = ($('#hiddenKeepId').value==='1' && loadedId) ? loadedId : newUID();
+      const id = (loadedId) ? loadedId : newUID();
       const note={ id, userId: window.currentUserId || null, num, ...fields, createdAt:now(), updatedAt:now(), published:true };
-      upsertNote(note); loadedId=note.id; $('#hiddenKeepId').value='1';
-      showMsg(`Published ✓ (${note.num})`); refreshRecent(); renderGraph();
+      upsertNote(note); loadedId=note.id;
+      showMsg(`Published ✓ (${note.num})`); refreshRecent(); await renderGraph();
       await (window.pushUserTagStats?.()); clearForm(); location.hash='#notetaker'; document.querySelector('[name="title"]').focus();
     }catch(e){ showMsg(e.message||'Failed to publish',false); }
   }
-
   async function draftSave(){ const num=$('#numInput').value.trim(), f=gatherFields(); try{ validateFields(f); if(!num){ beginPlacement('draft',f); return; } await finalizeDraft(f,num); } catch(e){ showMsg(e.message||'Failed to save',false); } }
   async function publish(e){ e.preventDefault(); const num=$('#numInput').value.trim(), f=gatherFields(); try{ validateFields(f); if(!num){ beginPlacement('publish',f); return; } await finalizePublish(f,num); } catch(err){ showMsg(err.message||'Failed to publish',false); } }
   function deleteLoaded(){ if(!loadedId){ showMsg('No loaded note to delete',false); return; } if(!confirm('Delete this note?')) return; saveNotes(loadNotes().filter(n=>n.id!==loadedId)); saveLinks(loadLinks().filter(e=> e.from!==loadedId && e.to!==loadedId)); clearForm(); refreshRecent(); renderGraph(); showMsg('Deleted',true); window.pushUserTagStats?.(); }
 
-  $('#recentList').addEventListener('click',e=>{
+  document.getElementById('recentList').addEventListener('click',e=>{
     const btn=e.target.closest('.note-link'); if(!btn) return;
     const id=btn.getAttribute('data-id');
-    if(placeMode){ const n=loadNotes().find(x=>x.id===id); if(!n) return; const sug=suggestChild(n.num)||(isNum(n.num)?n.num+'a':n.num+'1'); finishPlacementWith(sug); return; }
+    if(placeMode){ const n=loadNotes().find(x=>x.id===id); if(!n) return; const sug=suggestChild(n.num)||( /^\d+$/.test(n.num)?n.num+'a':n.num+'1'); finishPlacementWith(sug); return; }
     loadNoteIntoForm(id);
   });
-  $('#placeNewRoot').addEventListener('click',()=>finishPlacementWith(nextRoot()));
+  document.getElementById('placeNewRoot').addEventListener('click',()=>finishPlacementWith(nextRoot()));
+  document.getElementById('newNoteBtn').onclick=()=>{ location.hash='#notetaker'; clearForm(); document.querySelector('[name="title"]').focus(); };
+  document.getElementById('saveDraft').onclick=draftSave;
+  document.getElementById('noteForm').onsubmit=publish;
+  document.getElementById('deleteNote').onclick=deleteLoaded;
+  document.getElementById('clearAll').onclick=()=>{ localStorage.removeItem(LS_NOTES); localStorage.removeItem(LS_LINKS); localStorage.removeItem('willow_blindspot_seeds'); localStorage.removeItem('willow_embed_cache'); clearForm(); refreshRecent(); renderGraph(); window.pushUserTagStats?.(); };
 
-  const agentSel=new Set(["interconnectedness","historian","blind_spot"]);
-  $('#agentToggles').addEventListener('click',e=>{ const b=e.target.closest('[data-agent]'); if(!b) return; const id=b.getAttribute('data-agent'); if(agentSel.has(id)){agentSel.delete(id); b.classList.remove('agent-on');} else {agentSel.add(id); b.classList.add('agent-on');} });
-  $('#runAgents').addEventListener('click',async ()=>{
-    if (!window.WillowLocalAgents) { agentMsg('Preparing local agents…'); await new Promise(res=>window.addEventListener('willow-agents-ready', res, { once:true })); }
-    runAgentsForCurrent();
-  });
-
-  function currentNoteForAgents(){ const id=loadedId||'temp'; const num=$('#numInput').value.trim()||'temp'; const f=gatherFields(); return { id, num, ...f }; }
-  function stripHistorianLead(t){ return t.replace(/^\s*([-*•]\s*)?This reminds me of\s+/i,(m,bullet)=>bullet?bullet:''); }
-  async function runAgentsForCurrent(){ const note=currentNoteForAgents(); if(!note.title||!note.content){agentMsg('Fill title and content first');return;} await runAgentsForNote(note, Array.from(agentSel)); }
-
-  async function runAgentsForNote(note, agents){
-    if (!window.WillowLocalAgents) return;
-    const saved=loadNotes().find(n=>n.id===note.id);
-    const context=saved||null;
-    const notes=loadNotes().filter(n=>!context || n.id!==context.id);
-    const out={}; const box=$('#agentResults'); box.innerHTML=''; agentMsg('Running locally…');
-
-    if(agents.includes('interconnectedness')) out.interconnectedness=await window.WillowLocalAgents.interconnectedness(context||note, notes);
-    if(agents.includes('historian')) out.historian=await window.WillowLocalAgents.historian(context||note, notes);
-    if(agents.includes('blind_spot')) out.blind_spot=await window.WillowLocalAgents.blind_spot(context||note, notes);
-
-    agentMsg('Done'); renderAgentResults(out, context);
-  }
-
-  function labelForId(id){ const n=loadNotes().find(x=>x.id===id); return n ? (n.num||'—') : id.slice(0,8); }
-
-  function renderAgentResults(agentsOut, context){
-    const box=$('#agentResults'); const proposed=[], sections=[];
-    let linkCandidate=null;
-    const MIN_CONF = 0.58;
-    const existing = new Set(loadLinks().map(e=>`${e.from}>${e.to}|${e.type}`));
-    if(agentsOut.interconnectedness?.links?.length){
-      const dedup = agentsOut.interconnectedness.links.filter(l => !existing.has(`${l.from}>${l.to}|${l.type}`));
-      dedup.sort((a,b)=>(b.confidence??0)-(a.confidence??0));
-      if(dedup.length && (dedup[0].confidence??0) >= MIN_CONF){ linkCandidate = dedup[0]; }
-    }
-    for(const k of Object.keys(agentsOut)){
-      const obj=agentsOut[k];
-      if(obj?.proposed_notes?.length) proposed.push(...obj.proposed_notes.map(p=>({...p,__agent:k})));
-      sections.push(`<div class="prop-card"><strong>${k}</strong>${obj?.feedback?`<div class="muted" style="margin-top:6px;">${escapeHtml(obj.feedback)}</div>`:''}</div>`);
-    }
-    if(linkCandidate){
-      sections.push(`<div class="prop-card" id="linkSuggestion"><strong>Top Link Suggestion</strong>
-        <div class="muted" style="margin-top:6px;">${escapeHtml(labelForId(linkCandidate.from))} → ${escapeHtml(labelForId(linkCandidate.to))} · ${escapeHtml(linkCandidate.type)} · ${(linkCandidate.confidence*100).toFixed(0)}%</div>
-        <div class="row" style="margin-top:6px;"><button class="btn primary" id="acceptTopLink">Accept</button></div></div>`);
-    } else {
-      sections.push(`<div class="prop-card"><strong>Top Link Suggestion</strong><div class="muted" style="margin-top:6px;">No strong link to suggest right now.</div></div>`);
-    }
-    if(proposed.length){
-      sections.push(`<div class="prop-card"><strong>Proposed Notes</strong>${
-        proposed.map((p,i)=>`<div class="prop-card"><div><strong>${escapeHtml(p.title||'Proposed')}</strong></div><div class="muted">${(p.tags||[]).join(', ')||'—'}</div><p style="margin-top:6px;">${escapeHtml(p.content||'')}</p><div class="row"><button class="btn primary" data-accept-prop="${i}">Accept (choose placement)</button><button class="btn" data-reject-prop="${i}">Reject</button></div></div>`).join('')}
-      </div>`);
-    }
-    box.innerHTML = sections.join('') || '<div class="muted">No outputs.</div>';
-    if(linkCandidate){ document.getElementById('acceptTopLink')?.addEventListener('click', ()=>{ acceptLinkSuggestion(linkCandidate); document.getElementById('linkSuggestion')?.remove(); }); }
-    const propArr=proposed.slice();
-    box.querySelectorAll('[data-accept-prop]').forEach(btn=>btn.addEventListener('click',()=>{ const idx=parseInt(btn.getAttribute('data-accept-prop'),10); acceptProposedNote(propArr[idx], context); }));
-    box.querySelectorAll('[data-reject-prop]').forEach(btn=>btn.addEventListener('click',ev=>ev.target.closest('.prop-card').remove()));
-  }
-  function acceptLinkSuggestion(e){
-    const edges=loadLinks();
-    if(!edges.some(x=>x.from===e.from&&x.to===e.to&&x.type===e.type)){
-      edges.push({from:e.from,to:e.to,type:e.type,confidence:e.confidence||0}); saveLinks(edges); renderGraph(); agentMsg('Link added');
-    } else { agentMsg('Link already exists'); }
-  }
-  function acceptProposedNote(p){
-    const fields = {
-      title: p.title || 'Proposed',
-      content: (p.tags||[]).includes('analogy') ? stripHistorianLead(p.content||'') : (p.content||''),
-      tags: p.tags || [],
-      source: ''
-    };
-    beginPlacement('publish', fields);
-  }
-
-  // Graph (pan/zoom)
-  const svg=document.getElementById('kg'), vp=document.getElementById('vp'); const view={x:0,y:0,k:1};
+  const svg=document.getElementById('kg'), vp=document.getElementById('vp'); const view={x:0,y:0,k:1}, W=800,H=450;
   function applyTransform(){ vp.setAttribute('transform',`translate(${view.x} ${view.y}) scale(${view.k})`); }
   function resetView(){ view.x=0; view.y=0; view.k=1; applyTransform(); }
-  applyTransform();
-  svg.addEventListener('wheel', (e)=>{ e.preventDefault(); const rect=svg.getBoundingClientRect(); const mx=e.clientX-rect.left, my=e.clientY-rect.top;
-    const ptX=(mx - view.x)/view.k, ptY=(my - view.y)/view.k; const delta=-Math.sign(e.deltaY)*0.12; const k=Math.min(5,Math.max(0.5, view.k*(1+delta)));
-    view.x = mx - ptX*k; view.y = my - ptY*k; view.k = k; applyTransform(); }, {passive:false});
+
+  function animateView(target, ms=350){
+    const start = { x:view.x, y:view.y, k:view.k };
+    const t0 = performance.now();
+    function step(t){
+      const p = Math.min(1,(t-t0)/ms);
+      const e = 0.5 - Math.cos(p*Math.PI)/2;
+      view.x = start.x + (target.x - start.x)*e;
+      view.y = start.y + (target.y - start.y)*e;
+      view.k = start.k + (target.k - start.k)*e;
+      applyTransform();
+      if (p<1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  svg.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    const rect=svg.getBoundingClientRect(); const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+    const ptX=(mx - view.x)/view.k, ptY=(my - view.y)/view.k;
+    const delta=-Math.sign(e.deltaY)*0.12;
+    const k=Math.min(5,Math.max(0.5, view.k*(1+delta)));
+    view.x = mx - ptX*k; view.y = my - ptY*k; view.k = k; applyTransform();
+  }, {passive:false});
   let dragging=false,last={x:0,y:0};
   svg.addEventListener('mousedown',(e)=>{dragging=true;last.x=e.clientX;last.y=e.clientY;});
   window.addEventListener('mousemove',(e)=>{if(!dragging)return; const dx=e.clientX-last.x, dy=e.clientY-last.y; view.x+=dx; view.y+=dy; last.x=e.clientX; last.y=e.clientY; applyTransform();});
   window.addEventListener('mouseup',()=>{dragging=false;});
   svg.addEventListener('dblclick',()=> resetView());
 
-  function circleLayout(n,cx,cy,r){ if(n<=1)return[{x:cx,y:cy}]; const pts=[]; for(let i=0;i<n;i++){const a=(2*Math.PI*i)/n-Math.PI/2; pts.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)})} return pts; }
-  const shareTags=(a=[],b=[])=>a.some(t=>b.includes(t));
-  function renderGraph(){
-    const vpEl = vp; vpEl.innerHTML=''; const nodes=loadNotes().filter(n=>n.published), links=loadLinks();
-    document.getElementById('statNodes').textContent=String(nodes.length);
-    const idxById=new Map(nodes.map((n,i)=>[n.id,i])); const cx=400,cy=220,r=Math.min(320,180+Math.max(0,12-nodes.length)*8); const pts=circleLayout(nodes.length,cx,cy,r);
-    let tagEdges=0;
-    for(let i=0;i<nodes.length;i++){ for(let j=i+1;j<nodes.length;j++){ if(shareTags(nodes[i].tags,nodes[j].tags)){ const a=pts[i],b=pts[j]; vpEl.insertAdjacentHTML('beforeend',`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#cbd5e1"/>`); tagEdges++; } } }
-    document.getElementById('statEdges').textContent=String(tagEdges);
-    let linkEdges=0;
-    links.forEach(e=>{ const i=idxById.get(e.from), j=idxById.get(e.to); if(i==null||j==null) return; const a=pts[i],b=pts[j]; vpEl.insertAdjacentHTML('beforeend',`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#64748b" class="edge-dashed"/>`); linkEdges++; });
-    document.getElementById('statEdgesLinks').textContent=String(linkEdges);
-    if(nodes.length===0){ vpEl.insertAdjacentHTML('beforeend','<text x="400" y="210" text-anchor="middle">No published notes yet</text>'); svg.onclick=null; return; }
-    nodes.forEach((n,i)=>{ const p=pts[i]; const idAttr='node-'+n.id.replace(/[^a-zA-Z0-9_-]/g,'_'); const label=escapeHtml(n.num||'—');
-      vpEl.insertAdjacentHTML('beforeend',`<g id="${idAttr}" data-id="${escapeHtml(n.id)}"><circle cx="${p.x}" cy="${p.y}" r="12" fill="#6366f1"></circle><text x="${p.x}" y="${p.y+26}" text-anchor="middle">${label}</text><title>${n.num} — ${n.title}\nTags: ${(n.tags||[]).join(', ')||'—'}</title></g>`); });
-    svg.onclick=(e)=>{ let el=e.target; while(el && el!==svg && !(el.tagName && el.tagName.toLowerCase()==='g' && el.dataset && el.dataset.id)){ el=el.parentNode; }
-      if(!el||!el.dataset||!el.dataset.id) return; const id=el.dataset.id;
-      if(placeMode){ const n=loadNotes().find(x=>x.id===id); if(!n) return; const sug=suggestChild(n.num)||(isNum(n.num)?n.num+'a':n.num+'1'); finishPlacementWith(sug); return; }
-      loadNoteIntoForm(id);
-    };
+  const AXIS_RIGHT='housing', AXIS_LEFT='technology', AXIS_UP='policy', AXIS_DOWN='energy';
+
+  async function vectorLayout(nodes){
+    const api = window.__willow_embedder;
+    if (!api) return null;
+    const e = await api.ensureEmbedder();
+
+    let cache = {};
+    try { cache = JSON.parse(localStorage.getItem('willow_embed_cache')||'{}'); } catch {}
+
+    async function embText(key, text){
+      const ck = `axis:${key}`;
+      if (cache[ck]) return cache[ck];
+      const out = await e(text, { pooling:'mean', normalize:true });
+      const vec = Array.from(out.data || out);
+      cache[ck] = vec; localStorage.setItem('willow_embed_cache', JSON.stringify(cache));
+      return vec;
+    }
+    async function embNote(n){
+      const ck = `note:${n.id}:${n.updatedAt||n.createdAt||''}`;
+      if (cache[ck]) return cache[ck];
+      const out = await e(n.content||n.title||'', { pooling:'mean', normalize:true });
+      const vec = Array.from(out.data || out);
+      cache[ck] = vec; localStorage.setItem('willow_embed_cache', JSON.stringify(cache));
+      return vec;
+    }
+    const vR = await embText('right', AXIS_RIGHT);
+    const vL = await embText('left',  AXIS_LEFT);
+    const vU = await embText('up',    AXIS_UP);
+    const vD = await embText('down',  AXIS_DOWN);
+
+    function norm(a){ const s=Math.sqrt(a.reduce((q,x)=>q+x*x,0))||1; return a.map(x=>x/s); }
+    function sub(a,b){ return a.map((x,i)=>x-b[i]); }
+    function dot(a,b){ let s=0; for(let i=0;i<a.length;i++) s+=a[i]*b[i]; return s; }
+
+    const axisX = norm(sub(vR, vL));
+    const axisY = norm(sub(vU, vD));
+
+    const coords = [];
+    for (const n of nodes) {
+      const v = await embNote(n);
+      const x = dot(v, axisX);
+      const y = dot(v, axisY);
+      coords.push({ id:n.id, x, y });
+    }
+    const xs = coords.map(c=>c.x), ys=coords.map(c=>c.y);
+    const xmin=Math.min(...xs), xmax=Math.max(...xs), ymin=Math.min(...ys), ymax=Math.max(...ys);
+    const dx = (xmax-xmin)||1, dy=(ymax-ymin)||1;
+    coords.forEach(c=>{ c.x = ((c.x - xmin)/dx)*2 - 1; c.y = ((c.y - ymin)/dy)*2 - 1; });
+    return coords;
   }
 
-  document.getElementById('newNoteBtn').onclick=()=>{ location.hash='#notetaker'; clearForm(); $('[name="title"]').focus(); };
-  document.getElementById('saveDraft').onclick=draftSave;
-  document.getElementById('noteForm').onsubmit=publish;
-  document.getElementById('deleteNote').onclick=deleteLoaded;
-  document.getElementById('clearAll').onclick=()=>{ localStorage.removeItem(LS_NOTES); localStorage.removeItem(LS_LINKS); localStorage.removeItem('willow_blindspot_seeds'); clearForm(); refreshRecent(); renderGraph(); window.pushUserTagStats?.(); };
-  document.getElementById('rebuild').onclick=renderGraph;
+  function circleLayout(n,cx,cy,r){ if(n<=1)return[{x:cx,y:cy}]; const pts=[]; for(let i=0;i<n;i++){const a=(2*Math.PI*i)/n-Math.PI/2; pts.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)})} return pts; }
+  const shareTags=(a=[],b=[])=>a.some(t=>b.includes(t));
+
+  async function renderGraph(){
+    const vpEl = vp; vpEl.innerHTML=''; const nodes=loadNotes().filter(n=>n.published), links=loadLinks();
+    document.getElementById('statNodes').textContent=String(nodes.length);
+    if(nodes.length===0){ vpEl.insertAdjacentHTML('beforeend','<text x="400" y="210" text-anchor="middle">No published notes yet</text>'); svg.onclick=null; return; }
+
+    let posMap = new Map();
+    try {
+      if (window.__willow_embedder) {
+        const coords = await vectorLayout(nodes);
+        if (coords) {
+          const pad = 40, cx = W/2, cy=H/2, rx=(W/2 - pad), ry=(H/2 - pad);
+          for (const c of coords) posMap.set(c.id, { x: cx + c.x*rx, y: cy - c.y*ry });
+        }
+      }
+    } catch(e){ console.warn('[Willow] vector layout failed, using circle', e); }
+
+    if (posMap.size===0) {
+      const pts=circleLayout(nodes.length, W/2, H/2, Math.min(320,180+Math.max(0,12-nodes.length)*8));
+      nodes.forEach((n,i)=>posMap.set(n.id, pts[i]));
+    }
+
+    let tagEdges=0;
+    for(let i=0;i<nodes.length;i++){
+      for(let j=i+1;j<nodes.length;j++){
+        if(shareTags(nodes[i].tags,nodes[j].tags)){
+          const a=posMap.get(nodes[i].id), b=posMap.get(nodes[j].id);
+          vpEl.insertAdjacentHTML('beforeend',`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#cbd5e1"/>`); tagEdges++;
+        }
+      }
+    }
+    document.getElementById('statEdges').textContent=String(tagEdges);
+
+    let linkEdges=0;
+    const publishedIds=new Set(nodes.map(n=>n.id));
+    links.forEach(e=>{
+      if(!publishedIds.has(e.from)||!publishedIds.has(e.to)) return;
+      const a=posMap.get(e.from), b=posMap.get(e.to);
+      vpEl.insertAdjacentHTML('beforeend',`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#64748b" class="edge-dashed"/>`); linkEdges++;
+    });
+    document.getElementById('statEdgesLinks').textContent=String(linkEdges);
+
+    nodes.forEach(n=>{
+      const p=posMap.get(n.id);
+      const idAttr='node-'+n.id.replace(/[^a-zA-Z0-9_-]/g,'_');
+      const label=(n.title||'Untitled').replace(/[&<>\"']/g,(m)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+      const titleAttr=(n.num||'—')+' — '+(n.title||'')+'\nTags: '+((n.tags||[]).join(', ')||'—');
+      vpEl.insertAdjacentHTML('beforeend',`<g id="${idAttr}" data-id="${n.id}"><circle cx="${p.x}" cy="${p.y}" r="12" fill="#6366f1"></circle><text x="${p.x}" y="${p.y+26}" text-anchor="middle">${label}</text><title>${titleAttr}</title></g>`);
+    });
+
+    svg.onclick=(e)=>{
+      let el=e.target;
+      while(el && el!==svg && !(el.tagName && el.tagName.toLowerCase()==='g' && el.dataset && el.dataset.id)){ el=el.parentNode; }
+      if(!el||!el.dataset||!el.dataset.id) return; const id=el.dataset.id;
+      if(placeMode){ const n=loadNotes().find(x=>x.id===id); if(!n) return; const sug=suggestChild(n.num)||( /^\d+$/.test(n.num)?n.num+'a':n.num+'1'); finishPlacementWith(sug); return; }
+      loadNoteIntoForm(id);
+    };
+
+    fitToContent(true);
+  }
+
+  function fitToContent(animated=false){
+    const circles=[...vp.querySelectorAll('circle')];
+    if(!circles.length){ animateView({x:0,y:0,k:1}); return; }
+    let xmin=Infinity,xmax=-Infinity,ymin=Infinity,ymax=-Infinity;
+    for(const c of circles){
+      const x=+c.getAttribute('cx'), y=+c.getAttribute('cy'); const r=+c.getAttribute('r')+30;
+      xmin=Math.min(xmin,x-r); xmax=Math.max(xmax,x+r); ymin=Math.min(ymin,y-r); ymax=Math.max(ymax,y+r);
+    }
+    const vw=W, vh=H, bw=xmax-xmin, bh=ymax-ymin;
+    const k = Math.max(0.5, Math.min(4, 0.95*Math.min(vw/bw, vh/bh)));
+    const x = (vw/2) - (xmin + bw/2)*k;
+    const y = (vh/2) - (ymin + bh/2)*k;
+    if (animated) animateView({x,y,k}, 450); else { view.x=x; view.y=y; view.k=k; applyTransform(); }
+  }
+
+  let lastHash = location.hash;
+  window.addEventListener('hashchange', ()=>{
+    if (lastHash === '#graph' && location.hash !== '#graph') {
+      const badZoom = (view.k < 0.6 || view.k > 3.2);
+      if (badZoom) fitToContent(true);
+    }
+    lastHash = location.hash;
+  });
+
+  document.getElementById('rebuild').onclick=()=>renderGraph();
+  document.getElementById('fitView').onclick=()=>fitToContent(true);
+
+  (function migrate(){ const notes=loadNotes(); let changed=false; notes.forEach(n=>{ if(!n.id){n.id=newUID();changed=true;} }); if(changed) saveNotes(notes); })();
 
   refreshRecent(); renderGraph();
+</script>
+
+<!-- WebLLM chat agents (local LLM) with Accept → Placement -->
+<script type="module">
+import * as webllm from 'https://esm.run/@mlc-ai/web-llm';
+
+const ui = {
+  modelPicker: document.getElementById('modelPicker'),
+  loadBtn: document.getElementById('loadModelBtn'),
+  tabs: [...document.querySelectorAll('#agentsCard .btn[data-tab]')],
+  panels: [...document.querySelectorAll('.agent-panel')],
+  chats: {
+    interconnectedness: document.getElementById('chat-interconnectedness'),
+    historian: document.getElementById('chat-historian'),
+    blind_spot: document.getElementById('chat-blind_spot')
+  },
+  inputs: {
+    interconnectedness: document.getElementById('inp-interconnectedness'),
+    historian: document.getElementById('inp-historian'),
+    blind_spot: document.getElementById('inp-blind_spot')
+  }
+};
+
+const agents = {
+  interconnectedness: {
+    system: (ctx) => `You are the Interconnectedness Agent. Task: reveal concrete linkages between the user's current atomic note and other domains.
+- Be specific and concise. Prefer 1–2 focused relationships with mechanism and WHY it matters now.
+- Propose ONE candidate note text: include a 'Title:' line and 2–5 sentences as the body; mirror the user's writing style.
+- Avoid boilerplate. Use the note’s tags and vocabulary.
+Context:
+${ctx}`
+  },
+  historian: {
+    system: (ctx) => `You are the Historian Agent. Provide targeted historical analogies WITHOUT starting with "This reminds me of".
+- Give 1–2 analogs with parallels and contrasts; finish with what to watch.
+- Offer ONE candidate note: include a 'Title:' line and 2–5 sentences body in the user's style.
+Context:
+${ctx}`
+  },
+  blind_spot: {
+    system: (ctx) => `You are the Blind-Spot Agent. Introduce an orthogonal angle—something the user likely isn't tracking.
+- Do NOT reference existing note titles; invent a fresh, distinct topic.
+- Provide one actionable hypothesis and one falsifier.
+- Offer ONE candidate note: include a 'Title:' line and 2–5 sentences body in the user's style.
+Context:
+${ctx}`
+  }
+};
+
+const history = {
+  interconnectedness: [],
+  historian: [],
+  blind_spot: []
+};
+
+let engine = null;
+
+(function fillModels(){
+  try {
+    const list = webllm?.prebuiltAppConfig?.model_list || [];
+    const ranked = [...list].sort((a,b)=>{
+      const na = (a?.model_id||'').toLowerCase();
+      const nb = (b?.model_id||'').toLowerCase();
+      const score = s => (s.includes('0.5b')?1: s.includes('1b')?2: s.includes('1.5b')?3: s.includes('2b')?4: s.includes('3b')?5: s.includes('7b')?8:10);
+      return score(na)-score(nb);
+    });
+    ranked.forEach(r=>{
+      const opt = document.createElement('option');
+      opt.value = r.model_id; opt.textContent = r.model_id;
+      ui.modelPicker.appendChild(opt);
+    });
+    const preferred = [...ui.modelPicker.options].find(o => /qwen|phi|1b|1\.5b|0\.5b/i.test(o.value));
+    if (preferred) ui.modelPicker.value = preferred.value;
+  } catch {
+    ['Qwen2.5-1.5B-Instruct-q4f16_1','Qwen2.5-0.5B-Instruct-q4f16_1','Llama-3.2-1B-Instruct-q4f16_1'].forEach(id=>{
+      const opt=document.createElement('option'); opt.value=id; opt.textContent=id; ui.modelPicker.appendChild(opt);
+    });
+    ui.modelPicker.value = 'Qwen2.5-1.5B-Instruct-q4f16_1';
+  }
+})();
+
+ui.tabs.forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const tab = btn.dataset.tab;
+    ui.panels.forEach(p=>p.style.display = (p.dataset.panel===tab)?'block':'none');
+  });
+});
+
+ui.loadBtn.addEventListener('click', async ()=>{
+  const id = ui.modelPicker.value;
+  if (!('gpu' in navigator)) { alert('WebGPU not available. Use a recent Chrome/Edge.'); return; }
+  ui.loadBtn.disabled = true; ui.loadBtn.textContent = 'Loading…';
+  try {
+    engine = await webllm.CreateMLCEngine(id, {
+      initProgressCallback: (p)=>{ ui.loadBtn.textContent = `Loading… ${Math.round((p.progress||0)*100)}%`; }
+    });
+    ui.loadBtn.textContent = 'Loaded ✓';
+  } catch (e) {
+    console.error(e); alert('Model load failed. See console.'); ui.loadBtn.textContent = 'Load Model';
+  } finally { ui.loadBtn.disabled = false; }
+});
+
+function currentNoteContext(){
+  const form = document.getElementById('noteForm');
+  const title = form?.elements?.title?.value?.trim() || '';
+  const content = form?.elements?.content?.value?.trim() || '';
+  const tags = (form?.elements?.tags?.value||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  const recents = [...document.querySelectorAll('#recentList li .note-title')].slice(0,6).map(n=>n.textContent.trim());
+  return `Title: ${title || '(untitled)'}
+Tags: ${tags.join(', ')||'(none)'}
+Body: ${content.slice(0,1200)}
+Recent note titles: ${recents.join(' | ')||'(none)'}`;
+}
+
+function addBubble(agent, who, text){
+  const chat = ui.chats[agent];
+  const div = document.createElement('div');
+  div.className = 'bubble ' + (who==='user'?'user':'bot');
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+function addStreamingBubble(agent){
+  const chat = ui.chats[agent];
+  const div = document.createElement('div');
+  div.className = 'bubble bot';
+  div.textContent = '';
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return {
+    append(t){ div.textContent += t; chat.scrollTop = chat.scrollHeight; },
+    get text(){ return div.textContent; }
+  };
+}
+
+for (const [agent, inputEl] of Object.entries(ui.inputs)) {
+  const sendBtn = document.querySelector(`button[data-send="${agent}"]`);
+  sendBtn.addEventListener('click', ()=> sendAgent(agent));
+  inputEl.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); sendAgent(agent); }});
+  const toNoteBtn = document.querySelector(`button[data-to-note="${agent}"]`);
+  toNoteBtn.addEventListener('click', ()=> sendToNotetakerFrom(agent));
+  const acceptBtn = document.querySelector(`button[data-accept="${agent}"]`);
+  acceptBtn.addEventListener('click', ()=> acceptToPlacement(agent));
+}
+
+function extractTags(s){
+  const words = (s.toLowerCase().match(/[a-z][a-z\-]{2,}/g)||[]).filter(w=>!['this','that','with','from','into','about','their','there','which','because','while','among','between','also','only','these','those','over','under','after','before','against','within','without','could','should','would','might','analog','history','historian','orthogonal'].includes(w));
+  const freq = new Map(); words.forEach(w=>freq.set(w,(freq.get(w)||0)+1));
+  return [...freq.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(([w])=>w);
+}
+
+function splitTitleBody(full){
+  let title = 'AI suggestion';
+  let body = full.trim();
+  const m = full.match(/^\s*Title\s*:\s*(.+)$/mi);
+  if (m) { title = m[1].trim(); body = full.replace(m[0],'').trim(); }
+  else {
+    const firstPeriod = full.indexOf('. ');
+    if (firstPeriod>20 && firstPeriod<140) { title = full.slice(0, firstPeriod+1); body = full.slice(firstPeriod+1).trim(); }
+  }
+  return { title, body };
+}
+
+async function sendAgent(agentKey){
+  if (!engine) { alert('Load a model first.'); return; }
+  const input = ui.inputs[agentKey];
+  const userText = input.value.trim() || '.';
+  input.value = '';
+  const ctx = currentNoteContext();
+  const sys = agents[agentKey].system(ctx);
+
+  if (history[agentKey].length === 0) history[agentKey].push({ role:'system', content: sys });
+  history[agentKey].push({ role:'user', content: userText });
+
+  addBubble(agentKey,'user', userText);
+  const stream = addStreamingBubble(agentKey);
+
+  try {
+    const chunks = await engine.chat.completions.create({
+      messages: history[agentKey],
+      temperature: (agentKey==='blind_spot'? 1.2 : 0.9),
+      stream: true,
+      stream_options: { include_usage: true }
+    });
+    let final = '';
+    for await (const chunk of chunks) {
+      const piece = chunk.choices?.[0]?.delta?.content || '';
+      if (piece) { stream.append(piece); final += piece; }
+    }
+    history[agentKey].push({ role:'assistant', content: final });
+  } catch (err) {
+    console.error(err);
+    stream.append('\n[Error generating reply]');
+  }
+}
+
+function sendToNotetakerFrom(agentKey){
+  const chat = ui.chats[agentKey];
+  const lastBot = [...chat.querySelectorAll('.bubble.bot')].pop();
+  if (!lastBot) { alert('No assistant message yet.'); return; }
+  const full = lastBot.textContent.trim();
+  const { title, body } = splitTitleBody(full);
+  const form = document.getElementById('noteForm');
+  form.elements.title.value = title;
+  form.elements.content.value = body;
+  const baseTags = (form.elements.tags.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const auto = Array.from(new Set(baseTags.concat(extractTags(full)).slice(0,6)));
+  form.elements.tags.value = auto.join(', ');
+  form.elements.title.focus();
+}
+
+function acceptToPlacement(agentKey){
+  const chat = ui.chats[agentKey];
+  const lastBot = [...chat.querySelectorAll('.bubble.bot')].pop();
+  if (!lastBot) { alert('No assistant message yet.'); return; }
+  const full = lastBot.textContent.trim();
+  const { title, body } = splitTitleBody(full);
+  const tags = extractTags(full);
+  const fields = { title, content: body, tags, source: '' };
+  if (window.beginPlacement) {
+    window.beginPlacement('publish', fields);
+    document.getElementById('recentList')?.scrollIntoView({ behavior:'smooth', block:'center' });
+  } else {
+    sendToNotetakerFrom(agentKey);
+  }
+}
 </script>
 </body>
 </html>
