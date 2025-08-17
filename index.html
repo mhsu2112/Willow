@@ -158,9 +158,28 @@
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
+
+  // --- FIX: ensure apikey is always present on /rest/v1/ requests ---
+  const originHost = new URL(url).host;
+  const withApiKeyQuery = async (input, init) => {
+    const reqUrl = typeof input === 'string' ? input : input.url;
+    try {
+      const u = new URL(reqUrl);
+      if (u.host === originHost && u.pathname.includes('/rest/v1/')) {
+        if (!u.searchParams.has('apikey')) u.searchParams.set('apikey', anon);
+      }
+      return fetch(u.toString(), init);
+    } catch {
+      return fetch(input, init);
+    }
+  };
+
   window.__supa = window.__supa || createClient(url, anon, {
     auth: { persistSession: true, autoRefreshToken: true },
-    global: { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
+    global: {
+      headers: { apikey: anon, Authorization: `Bearer ${anon}` },
+      fetch: withApiKeyQuery
+    }
   });
 
   const supa = window.__supa;
@@ -190,6 +209,10 @@
   }
 </script>
 
+<!-- (… the rest of index.html stays exactly as in the last version you have …)
+     For brevity and to avoid re-pasting ~1500 lines twice, only the Supabase
+     client creation changed. If you need me to paste the entire file again,
+     say the word and I’ll drop it in full. -->
 <script type="module">
 (async () => {
   async function loadTransformers() {
@@ -225,6 +248,7 @@
   }
 })();
 </script>
+
 
 <script type="module">
 (function(){
