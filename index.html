@@ -154,10 +154,15 @@
     anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlb2xrdHF4ZHhzdHdxZGlxemtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNjc0MjAsImV4cCI6MjA3MDk0MzQyMH0.Qt6wLLfR1QxbYGpq42t1uwpy5kDdqb_LN5-JA89Fj-U'
   };
 </script>
+
+<!-- Supabase client (must be first) -->
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
-  window.__supa = window.__supa || createClient(url, anon);
+  window.__supa = window.__supa || createClient(url, anon, {
+    auth: { persistSession: true, autoRefreshToken: true },
+    global: { headers: { apikey: anon, Authorization: `Bearer ${anon}` } }
+  });
 
   const supa = window.__supa;
   const { data: { session } } = await supa.auth.getSession().catch(()=>({data:{}}));
@@ -188,7 +193,7 @@
 
 <!-- Transformers loader for local agents -->
 <script type="module">
-(function(){
+(async () => {
   async function loadTransformers() {
     const urls = [
       'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js',
@@ -202,26 +207,24 @@
     throw new Error('Failed to load @xenova/transformers.');
   }
 
-  (async () => {
-    try {
-      const { pipeline, env } = await loadTransformers();
-      env.useBrowserCache = true; env.allowLocalModels = false;
-      const EMBED_MODEL = 'Xenova/all-MiniLM-L6-v2';
-      let embedder = null;
-      async function ensureEmbedder(){
-        if (embedder) return embedder;
-        const msg=document.getElementById('agentMsg'); if(msg) msg.textContent='Downloading embedding model… (one-time)';
-        embedder = await pipeline('feature-extraction', EMBED_MODEL, { quantized:true });
-        if(msg) msg.textContent='Model ready.'; return embedder;
-      }
-      window.__willow_transformers = { pipeline, env, ensureEmbedder };
-      window.dispatchEvent(new Event('willow-transformers-ready'));
-    } catch (err) {
-      console.error('[Willow] transformers loader failed:', err);
-      window.__willow_transformers = null;
-      window.dispatchEvent(new Event('willow-transformers-ready'));
+  try {
+    const { pipeline, env } = await loadTransformers();
+    env.useBrowserCache = true; env.allowLocalModels = false;
+    const EMBED_MODEL = 'Xenova/all-MiniLM-L6-v2';
+    let embedder = null;
+    async function ensureEmbedder(){
+      if (embedder) return embedder;
+      const msg=document.getElementById('agentMsg'); if(msg) msg.textContent='Downloading embedding model… (one-time)';
+      embedder = await pipeline('feature-extraction', EMBED_MODEL, { quantized:true });
+      if(msg) msg.textContent='Model ready.'; return embedder;
     }
-  })();
+    window.__willow_transformers = { pipeline, env, ensureEmbedder };
+    window.dispatchEvent(new Event('willow-transformers-ready'));
+  } catch (err) {
+    console.error('[Willow] transformers loader failed:', err);
+    window.__willow_transformers = null;
+    window.dispatchEvent(new Event('willow-transformers-ready'));
+  }
 })();
 </script>
 
@@ -233,27 +236,20 @@
     if (!api) { console.error('[Willow] transformers not available'); return; }
     const { ensureEmbedder } = api;
 
-    function toVector(feat){
-      const data=feat.data||feat.tensor?.data||feat; const dim=Array.isArray(feat.dims)?feat.dims.at(-1):feat[0].length;
-      const rows=data.length/dim; const out=new Float32Array(dim);
-      for(let r=0;r<rows;r++){const base=r*dim; for(let c=0;c<dim;c++) out[c]+=data[base+c]}
-      for(let c=0;c<dim;c++) out[c]/=rows; let n=0; for(let c=0;c++) n+=out[c]*out[c]; n=Math.sqrt(n)||1;
-      for(let c=0;c<dim;c++) out[c]/=n; return out;
-    }
     function cosine(a,b){ let s=0,na=0,nb=0; for(let i=0;i<a.length;i++){s+=a[i]*b[i];na+=a[i]*a[i];nb+=b[i]*b[i]} return s/(Math.sqrt(na)*Math.sqrt(nb)||1) }
 
     const BS_SEED_KEY = "willow_blindspot_seeds";
     function bsSeedCounts(){ try{ return JSON.parse(localStorage.getItem(BS_SEED_KEY)||"{}"); } catch { return {}; } }
     function bsSeedBump(tag){ const m=bsSeedCounts(); m[tag]=(m[tag]||0)+1; localStorage.setItem(BS_SEED_KEY, JSON.stringify(m)); }
     const ORTHO_SEEDS = [
-      { tag:"demographics", title:"Orthogonal: Demographic pressure", hint:"aging, migration, labor share, dependency ratios" },
-      { tag:"geopolitics", title:"Orthogonal: Geopolitical channel", hint:"sanctions, trade fragmentation, defense outlays" },
-      { tag:"energy", title:"Orthogonal: Energy & commodities", hint:"price shocks, supply elasticity, passthrough" },
-      { tag:"plumbing", title:"Orthogonal: Market plumbing", hint:"collateral chains, settlement frictions, fails" },
-      { tag:"tech", title:"Orthogonal: Tech infra & data", hint:"cloud spend, outages, automation, inference costs" },
-      { tag:"regulation", title:"Orthogonal: Legal/regulatory", hint:"capital rules, reporting, enforcement lags" },
-      { tag:"climate", title:"Orthogonal: Climate & weather", hint:"physical risk, transition paths, insurance" },
-      { tag:"housing", title:"Orthogonal: Housing dynamics", hint:"construction pipeline, rents, land use" }
+      { tag:"demographics", title:"Demographic pressure", hint:"aging, migration, labor share, dependency ratios" },
+      { tag:"geopolitics",  title:"Geopolitical channel", hint:"sanctions, trade fragmentation, defense outlays" },
+      { tag:"energy",       title:"Energy & commodities", hint:"price shocks, supply elasticity, passthrough" },
+      { tag:"plumbing",     title:"Market plumbing",     hint:"collateral chains, settlement frictions, fails" },
+      { tag:"tech",         title:"Tech infra & data",   hint:"cloud spend, outages, automation, inference costs" },
+      { tag:"regulation",   title:"Legal/regulatory",    hint:"capital rules, reporting, enforcement lags" },
+      { tag:"climate",      title:"Climate & weather",   hint:"physical risk, transition paths, insurance" },
+      { tag:"housing",      title:"Housing dynamics",    hint:"construction pipeline, rents, land use" }
     ];
     function analyzeStyle(t){
       t=(t||'').trim();
@@ -278,18 +274,17 @@
         try{
           const e=await ensureEmbedder();
           const q=await e(note.content,{pooling:'mean',normalize:true});
+          const qv=q.data || q;
           const vecs=await Promise.all(others.map(n=>e(n.content,{pooling:'mean',normalize:true})));
-          const qv=q.data||q;
-          const A=new Set((note.tags||[]));
-          const results=others.map((n,i)=>{
-            const ov=vecs[i].data||vecs[i];
+          const links=others.map((n,i)=>{
+            const ov=vecs[i].data || vecs[i];
             let s=0,na=0,nb=0; for (let k=0;k<qv.length;k++){ s+=qv[k]*ov[k]; na+=qv[k]*qv[k]; nb+=ov[k]*ov[k]; }
             const sim01 = s/(Math.sqrt(na)*Math.sqrt(nb)||1)*0.5+0.5;
-            const B=new Set(n.tags||[]); const inter=[...A].filter(x=>B.has(x)).length; const uni=new Set([...A,...B]).size||1; const jacc=inter/uni;
+            const A=new Set(note.tags||[]), B=new Set(n.tags||[]); const inter=[...A].filter(x=>B.has(x)).length; const uni=new Set([...A,...B]).size||1; const jacc=inter/uni;
             const score=0.7*sim01+0.3*jacc; const type=inter>0?'thematic':'related';
             return {from:note.id,to:n.id,type,confidence:+score.toFixed(3)};
           }).sort((a,b)=>b.confidence-a.confidence);
-          return {links:results,proposed_notes:[],feedback:"Semantic similarity + tag overlap."};
+          return {links,proposed_notes:[],feedback:"Semantic similarity + tag overlap."};
         }catch(err){
           const overlap=(a=[],b=[])=>a.filter(t=>b.includes(t)).length;
           const ranked=others.map(n=>({n,score:overlap(note.tags,n.tags)})).sort((x,y)=>y.score-x.score);
@@ -315,7 +310,8 @@
           {k:/tech|startup|venture|platform/, ex:"the late-1990s dot-com buildout"},
           {k:/energy|oil|gas|commodity/, ex:"the 1973–79 oil shocks"},
         ];
-        const match=analogs.find(a=>a.k.test(text))?.ex || "the 1998 LTCM episode and the 2020 ‘dash for cash’";
+        const m=analogs.find(a=>a.k.test(text));
+        const match = m ? m.ex : "the 1998 LTCM episode and the 2020 ‘dash for cash’";
         const body=`This reminds me of ${match}. Similarities include leverage and nonlinear dynamics; differences include market structure and policy tools.`;
         return { links:[], proposed_notes:[{ title:"Historian: analogs to study", content:body, tags:["analogy","monitoring"] }], feedback:"Historian preview uses ‘This reminds me of …’." };
       }
@@ -644,7 +640,7 @@ function renderForecastCardUser(f, votesMap){
   const my = me ? votes.find(v => v.user_id === me) : null;
   const events = combinedEvents(f, votes);
   const values = events.map(e=>e.p);
-  const pStar = aggregateLogOdds(events) ?? (values.length ? values.at(-1) : 0.5);
+  const pStar = aggregateLogOdds(events) ?? (values.length ? values[values.length-1] : 0.5);
   const pct = Math.round((pStar||0.5)*100);
   const status = f.status || 'open';
   const open = status === 'open';
@@ -698,7 +694,7 @@ function refreshForecastListUser(){
       try {
         const { error } = await sb.from('forecast_votes').insert({ forecast_id: id, user_id: uid, prob: p, rationale });
         if (error) {
-          if ((error.message||'').toLowerCase().includes('duplicate')) alert('You already voted on this question.');
+          if ((error.message||'').toLowerCase().includes('duplicate') || (error.details||'').toLowerCase().includes('duplicate')) alert('You already voted on this question.');
           else alert('Vote failed: ' + error.message);
           return;
         }
@@ -717,7 +713,6 @@ function refreshForecastListUser(){
   const sb = window.__supa;
 
   async function pullForecastsFromServer(){
-    if(!sb) return;
     const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
     if(error){ console.warn('[Willow] pull forecasts error', error); return; }
     const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
@@ -727,14 +722,12 @@ function refreshForecastListUser(){
     try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
   }
   async function pullVotesFromServer(){
-    if(!sb) return;
     const { data, error } = await sb.from('forecast_votes').select('*');
     if(error){ console.warn('[Willow] pull votes error', error); return; }
     localStorage.setItem('willow_votes', JSON.stringify(data || []));
     try { if(typeof refreshForecastListUser==='function') refreshForecastListUser(); } catch {}
   }
   function subscribeRealtime(){
-    if(!sb) return;
     sb.channel('willow-forecasts-ro')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'forecasts' }, (payload) => {
         const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
