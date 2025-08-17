@@ -74,7 +74,7 @@
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
 
-  // --- FIX: ensure apikey is always present on /rest/v1/ requests ---
+  // Append ?apikey=… to /rest/v1/* requests
   const originHost = new URL(url).host;
   const withApiKeyQuery = async (input, init) => {
     const reqUrl = typeof input === 'string' ? input : input.url;
@@ -89,13 +89,15 @@
     }
   };
 
+  // Client without global Authorization header
   window.__supa = window.__supa || createClient(url, anon, {
     auth: { persistSession: true, autoRefreshToken: true },
-    global: {
-      headers: { apikey: anon, Authorization: `Bearer ${anon}` },
-      fetch: withApiKeyQuery
-    }
+    global: { headers: { apikey: anon }, fetch: withApiKeyQuery }
   });
+
+  // Require login for admin actions
+  const { data: { session } } = await window.__supa.auth.getSession().catch(()=>({data:{}}));
+  if (!session?.user) location.href = new URL('auth.html', location.href).href;
 </script>
 
 <script>
@@ -125,12 +127,7 @@ const invLogit = (L) => 1/(1+Math.exp(-L));
 function aggregateLogOdds(updates, now=Date.now(), halfLifeDays=14, extremize=1.3) {
   if (!updates?.length) return null;
   const HL = halfLifeDays * 864e5; let num=0, den=0;
-  for (const u of updates) {
-    const t = (typeof u.t === 'string') ? new Date(u.t).getTime() : +u.t;
-    const w = Math.exp(-(now - t)/HL);
-    const L = logit(clamp(u.p));
-    num += w * L; den += w;
-  }
+  for (const u of updates) { const t = (typeof u.t === 'string') ? new Date(u.t).getTime() : +u.t; const w = Math.exp(-(now - t)/HL); const L = logit(clamp(u.p)); num += w * L; den += w; }
   if (den === 0) return null;
   return invLogit((num/den) * extremize);
 }
@@ -156,9 +153,7 @@ function renderForecastCard(f){
         <div class="muted">${f.resolution_criteria||''}</div>
         <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}</div>
       </div>
-      <div>
-        ${renderSparkline(values)}
-      </div>
+      <div>${renderSparkline(values)}</div>
     </div>
     ${status === 'resolved' ? `
       <div class="row" style="margin-top:6px;">
@@ -218,22 +213,21 @@ function refreshForecastList(){
 
     const doResolve = async (outcomeYes) => {
       const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
-      const pStar = (function(ev){ if (!(ev?.length)) return 0.5; return (function(updates, now=Date.now(), halfLifeDays=14, extremize=1.3) {
-        if (!updates?.length) return null;
-        const HL = halfLifeDays * 864e5; let num=0, den=0;
-        for (const u of updates) { const t = (typeof u.t === 'string') ? new Date(u.t).getTime() : +u.t; const w = Math.exp(-(now - t)/HL); const L = Math.log((Math.min(.999,Math.max(.001,u.p)))/(1-Math.min(.999,Math.max(.001,u.p)))); num += w * L; den += w; }
-        if (den === 0) return null; return 1/(1+Math.exp(-((num/den) * extremize)));
-      })(ev) ?? ev[ev.length-1].p ?? 0.5; })(f.updates||[]);
+      const pStar = (function(ev){
+        if (!(ev?.length)) return 0.5;
+        const HL = 14 * 864e5; let num=0, den=0;
+        for (const u of ev) { const t = (typeof u.t === 'string') ? new Date(u.t).getTime() : +u.t; const w = Math.exp(-(Date.now() - t)/HL); const L = Math.log((Math.min(.999,Math.max(.001,u.p)))/(1-Math.min(.999,Math.max(.001,u.p)))); num += w * L; den += w; }
+        if (den === 0) return 0.5; return 1/(1+Math.exp(-(num/den*1.3)));
+      })(f.updates||[]);
       const y = outcomeYes ? 1 : 0; const score = (Math.min(.999, Math.max(.001, pStar)) - y) ** 2;
-      f.status = 'resolved';
-      f.resolution = { outcome: outcomeYes?'YES':'NO', t: new Date().toISOString(), comment: '' };
-      f.metrics = { brier: score };
-      f.updated_at = new Date().toISOString();
+      f.status = 'resolved'; f.resolution = { outcome: outcomeYes?'YES':'NO', t: new Date().toISOString(), comment: '' };
+      f.metrics = { brier: score }; f.updated_at = new Date().toISOString();
       saveForecasts(all); await pushForecastToServer(f); refreshForecastList();
     };
     card.querySelector('.fcResolveYes')?.addEventListener('click', ()=>doResolve(true));
     card.querySelector('.fcResolveNo')?.addEventListener('click', ()=>doResolve(false));
 
+    // delete forecast (admin)
     card.querySelector('.fcDelete')?.addEventListener('click', async ()=>{
       if (!confirm('Delete this forecast? This cannot be undone.')) return;
       try {
@@ -241,9 +235,7 @@ function refreshForecastList(){
         if (error) throw error;
         saveForecasts(loadForecasts().filter(f=>f.id!==id));
         refreshForecastList();
-      } catch (e) {
-        alert('Delete failed. See console.'); console.error(e);
-      }
+      } catch (e) { alert('Delete failed. See console.'); console.error(e); }
     });
   });
 }
@@ -265,33 +257,19 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
 
   function toDbRow(f){
     return {
-      id: f.id,
-      title: f.title,
-      resolution_criteria: f.resolution_criteria ?? null,
-      close_at: f.closeAt ?? null,
-      resolve_by: f.resolveBy ?? null,
-      status: f.status ?? 'open',
-      tags: f.tags ?? [],
-      linked_note_ids: f.linkedNoteIds ?? [],
-      updates: f.updates ?? [],
-      metrics: f.metrics ?? {},
-      resolution: f.resolution ?? null,
+      id: f.id, title: f.title, resolution_criteria: f.resolution_criteria ?? null,
+      close_at: f.closeAt ?? null, resolve_by: f.resolveBy ?? null,
+      status: f.status ?? 'open', tags: f.tags ?? [], linked_note_ids: f.linkedNoteIds ?? [],
+      updates: f.updates ?? [], metrics: f.metrics ?? {}, resolution: f.resolution ?? null,
       updated_at: f.updated_at ?? new Date().toISOString()
     };
   }
   function fromDbRow(r){
     return {
-      id: r.id,
-      title: r.title,
-      resolution_criteria: r.resolution_criteria ?? null,
-      closeAt: r.close_at ?? null,
-      resolveBy: r.resolve_by ?? null,
-      status: r.status ?? 'open',
-      tags: r.tags ?? [],
-      linkedNoteIds: r.linked_note_ids ?? [],
-      updates: r.updates ?? [],
-      metrics: r.metrics ?? {},
-      resolution: r.resolution ?? null,
+      id: r.id, title: r.title, resolution_criteria: r.resolution_criteria ?? null,
+      closeAt: r.close_at ?? null, resolveBy: r.resolve_by ?? null,
+      status: r.status ?? 'open', tags: r.tags ?? [], linkedNoteIds: r.linked_note_ids ?? [],
+      updates: r.updates ?? [], metrics: r.metrics ?? {}, resolution: r.resolution ?? null,
       updated_at: r.updated_at ?? new Date().toISOString()
     };
   }
@@ -378,6 +356,8 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
     }));
   }
   document.getElementById('genSuggest')?.addEventListener('click', async ()=>{
+    const { data: { session } } = await window.__supa.auth.getSession();
+    if (!session?.user) { alert('Sign in first.'); return; }
     const rows = await fetchUserTagStats(); const tags = aggregatePopularTags(rows); renderSuggestions(tags);
   });
 </script>
