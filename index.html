@@ -159,7 +159,7 @@
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
 
-  // --- FIX: ensure apikey is always present on /rest/v1/ requests ---
+  // Append ?apikey=… to /rest/v1/* requests
   const originHost = new URL(url).host;
   const withApiKeyQuery = async (input, init) => {
     const reqUrl = typeof input === 'string' ? input : input.url;
@@ -174,12 +174,10 @@
     }
   };
 
+  // Client without global Authorization header
   window.__supa = window.__supa || createClient(url, anon, {
     auth: { persistSession: true, autoRefreshToken: true },
-    global: {
-      headers: { apikey: anon, Authorization: `Bearer ${anon}` },
-      fetch: withApiKeyQuery
-    }
+    global: { headers: { apikey: anon }, fetch: withApiKeyQuery }
   });
 
   const supa = window.__supa;
@@ -209,10 +207,7 @@
   }
 </script>
 
-<!-- (… the rest of index.html stays exactly as in the last version you have …)
-     For brevity and to avoid re-pasting ~1500 lines twice, only the Supabase
-     client creation changed. If you need me to paste the entire file again,
-     say the word and I’ll drop it in full. -->
+<!-- ===== Transformers loader (local AI agents) ===== -->
 <script type="module">
 (async () => {
   async function loadTransformers() {
@@ -249,7 +244,7 @@
 })();
 </script>
 
-
+<!-- ===== Agents definitions ===== -->
 <script type="module">
 (function(){
   function defineAgents(){
@@ -347,6 +342,7 @@
 })();
 </script>
 
+<!-- ===== Notes, placement, links, graph, tag stats ===== -->
 <script>
 function notesForCurrentUser() {
   const all = (function(){ try { return JSON.parse(localStorage.getItem('willow_notes')||'[]'); } catch { return []; } })();
@@ -359,30 +355,24 @@ function notesForCurrentUser() {
 function computeTagStats() {
   const notes = notesForCurrentUser();
   const counts = new Map();
-  for (const n of notes) for (const t of (n.tags || [])) {
-    counts.set(t, (counts.get(t) || 0) + 1);
-  }
+  for (const n of notes) for (const t of (n.tags || [])) counts.set(t, (counts.get(t) || 0) + 1);
   const entries = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
   const total = notes.length;
   if (entries.length === 0) return { most: [], least: [], total };
-  const max = entries[0][1];
-  const min = entries[entries.length - 1][1];
+  const max = entries[0][1], min = entries[entries.length - 1][1];
   const most  = entries.filter(([_, c]) => c === max).map(([tag]) => tag);
   const least = entries.filter(([_, c]) => c === min).map(([tag]) => tag);
   return { most, least, total };
 }
 window.pushUserTagStats = async function pushUserTagStats() {
   try {
-    const sb = window.__supa;
-    const uid = window.currentUserId;
+    const sb = window.__supa; const uid = window.currentUserId;
     if (!sb || !uid) return;
     const { most, least, total } = computeTagStats();
     const row = { user_id: uid, most_tags: most, least_tags: least, notes_count: total, updated_at: new Date().toISOString() };
     await sb.from('user_tag_stats').upsert(row, { onConflict: 'user_id' });
     window.dispatchEvent(new Event('willow-ready-stats'));
-  } catch (e) {
-    console.warn('[Willow] tag stats push failed:', e);
-  }
+  } catch (e) { console.warn('[Willow] tag stats push failed:', e); }
 };
 </script>
 
@@ -452,7 +442,6 @@ window.pushUserTagStats = async function pushUserTagStats() {
       upsertNote(note); loadedId=note.id; $('#hiddenKeepId').value='1';
       showMsg(`Draft saved (${note.num})`); refreshRecent(); renderGraph();
       await (window.pushUserTagStats?.());
-      // NEW: after saving, reset for next note
       clearForm(); location.hash='#notetaker'; document.querySelector('[name="title"]').focus();
     }catch(e){ showMsg(e.message||'Failed to save',false); }
   }
@@ -464,7 +453,6 @@ window.pushUserTagStats = async function pushUserTagStats() {
       upsertNote(note); loadedId=note.id; $('#hiddenKeepId').value='1';
       showMsg(`Published ✓ (${note.num})`); refreshRecent(); renderGraph();
       await (window.pushUserTagStats?.());
-      // NEW: after placing, clear and prepare a new note
       clearForm(); location.hash='#notetaker'; document.querySelector('[name="title"]').focus();
     }catch(e){ showMsg(e.message||'Failed to publish',false); }
   }
@@ -473,7 +461,6 @@ window.pushUserTagStats = async function pushUserTagStats() {
   async function publish(e){ e.preventDefault(); const num=$('#numInput').value.trim(), f=gatherFields(); try{ validateFields(f); if(!num){ beginPlacement('publish',f); return; } await finalizePublish(f,num); } catch(err){ showMsg(err.message||'Failed to publish',false); } }
   function deleteLoaded(){ if(!loadedId){ showMsg('No loaded note to delete',false); return; } if(!confirm('Delete this note?')) return; saveNotes(loadNotes().filter(n=>n.id!==loadedId)); saveLinks(loadLinks().filter(e=> e.from!==loadedId && e.to!==loadedId)); clearForm(); refreshRecent(); renderGraph(); showMsg('Deleted',true); window.pushUserTagStats?.(); }
 
-  // Clicking a note: either load it or use as placement parent
   $('#recentList').addEventListener('click',e=>{
     const btn=e.target.closest('.note-link'); if(!btn) return;
     const id=btn.getAttribute('data-id');
@@ -485,17 +472,14 @@ window.pushUserTagStats = async function pushUserTagStats() {
   const agentSel=new Set(["interconnectedness","historian","blind_spot"]);
   $('#agentToggles').addEventListener('click',e=>{ const b=e.target.closest('[data-agent]'); if(!b) return; const id=b.getAttribute('data-agent'); if(agentSel.has(id)){agentSel.delete(id); b.classList.remove('agent-on');} else {agentSel.add(id); b.classList.add('agent-on');} });
   $('#runAgents').addEventListener('click',async ()=>{
-    if (!window.WillowLocalAgents) {
-      agentMsg('Preparing local agents…');
-      await new Promise(res=>window.addEventListener('willow-agents-ready', res, { once:true }));
-    }
+    if (!window.WillowLocalAgents) { agentMsg('Preparing local agents…'); await new Promise(res=>window.addEventListener('willow-agents-ready', res, { once:true })); }
     runAgentsForCurrent();
   });
 
   function currentNoteForAgents(){ const id=loadedId||'temp'; const num=$('#numInput').value.trim()||'temp'; const f=gatherFields(); return { id, num, ...f }; }
+  function stripHistorianLead(t){ return t.replace(/^\s*([-*•]\s*)?This reminds me of\s+/i,(m,bullet)=>bullet?bullet:''); }
   async function runAgentsForCurrent(){ const note=currentNoteForAgents(); if(!note.title||!note.content){agentMsg('Fill title and content first');return;} await runAgentsForNote(note, Array.from(agentSel)); }
 
-  function stripHistorianLead(t){ return t.replace(/^\s*([-*•]\s*)?This reminds me of\s+/i,(m,bullet)=>bullet?bullet:''); }
   async function runAgentsForNote(note, agents){
     if (!window.WillowLocalAgents) return;
     const saved=loadNotes().find(n=>n.id===note.id);
@@ -551,8 +535,8 @@ window.pushUserTagStats = async function pushUserTagStats() {
       edges.push({from:e.from,to:e.to,type:e.type,confidence:e.confidence||0}); saveLinks(edges); renderGraph(); agentMsg('Link added');
     } else { agentMsg('Link already exists'); }
   }
-  // NEW: accepting a proposed note now opens placement mode
-  function acceptProposedNote(p, context){
+  // Accepting proposed note opens placement
+  function acceptProposedNote(p){
     const fields = {
       title: p.title || 'Proposed',
       content: (p.tags||[]).includes('analogy') ? stripHistorianLead(p.content||'') : (p.content||''),
@@ -562,6 +546,7 @@ window.pushUserTagStats = async function pushUserTagStats() {
     beginPlacement('publish', fields);
   }
 
+  // ==== Graph (pan/zoom) ====
   const svg=document.getElementById('kg'), vp=document.getElementById('vp'); const view={x:0,y:0,k:1};
   function applyTransform(){ vp.setAttribute('transform',`translate(${view.x} ${view.y}) scale(${view.k})`); }
   function resetView(){ view.x=0; view.y=0; view.k=1; applyTransform(); }
@@ -596,7 +581,6 @@ window.pushUserTagStats = async function pushUserTagStats() {
       loadNoteIntoForm(id);
     };
   }
-  function pulseNode(id){ const domId='node-'+id.replace(/[^a-zA-Z0-9_-]/g,'_'); const g=document.getElementById(domId); if(!g) return; const c=g.querySelector('circle'); c.style.transition='transform .25s ease-out'; c.style.transformOrigin='center'; c.style.transform='scale(1.25)'; setTimeout(()=>c.style.transform='scale(1)',250); }
 
   document.getElementById('newNoteBtn').onclick=()=>{ location.hash='#notetaker'; clearForm(); $('[name="title"]').focus(); };
   document.getElementById('saveDraft').onclick=draftSave;
@@ -608,6 +592,7 @@ window.pushUserTagStats = async function pushUserTagStats() {
   refreshRecent(); renderGraph();
 </script>
 
+<!-- ===== Forecasts (user view + votes) ===== -->
 <script>
 const LS_FC = 'willow_forecasts';
 const LS_VOTES = 'willow_votes';
@@ -615,14 +600,7 @@ const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC
 const saveForecasts = (arr) => localStorage.setItem(LS_FC, JSON.stringify(arr));
 const loadVotes = () => { try { return JSON.parse(localStorage.getItem(LS_VOTES) || '[]'); } catch { return []; } };
 const saveVotes = (arr) => localStorage.setItem(LS_VOTES, JSON.stringify(arr));
-const groupVotesByForecast = () => {
-  const map = new Map();
-  for (const v of loadVotes()) {
-    if (!map.has(v.forecast_id)) map.set(v.forecast_id, []);
-    map.get(v.forecast_id).push(v);
-  }
-  return map;
-};
+const groupVotesByForecast = () => { const map = new Map(); for (const v of loadVotes()) { if (!map.has(v.forecast_id)) map.set(v.forecast_id, []); map.get(v.forecast_id).push(v); } return map; };
 
 const clamp = (x,a=0.001,b=0.999) => Math.min(b, Math.max(a, x));
 const logit = (p) => Math.log(p/(1-p));
@@ -714,38 +692,28 @@ function refreshForecastListUser(){
       try {
         const { error } = await sb.from('forecast_votes').insert({ forecast_id: id, user_id: uid, prob: p, rationale });
         if (error) {
-          if ((error.message||'').toLowerCase().includes('duplicate') || (error.details||'').toLowerCase().includes('duplicate')) alert('You already voted on this question.');
+          const msg = (error.message||'').toLowerCase()+(error.details||'').toLowerCase();
+          if (msg.includes('duplicate') || msg.includes('primary key')) alert('You already voted on this question.');
           else alert('Vote failed: ' + error.message);
           return;
         }
         const cur = loadVotes(); cur.push({ forecast_id:id, user_id:uid, prob:p, rationale, created_at:new Date().toISOString() });
-        saveVotes(cur);
-        refreshForecastListUser();
-      } catch (e) {
-        alert('Vote failed. See console.');
-        console.error(e);
-      }
+        saveVotes(cur); refreshForecastListUser();
+      } catch (e) { alert('Vote failed. See console.'); console.error(e); }
     });
 
-    // NEW: view votes for all users (try RPC with emails; fallback to user_id)
     const btn = card.querySelector('.viewVotesBtn');
     const boxV = card.querySelector('.votesBox');
     let open = false, loaded = false;
     btn?.addEventListener('click', async ()=>{
-      open = !open;
-      boxV.style.display = open ? 'block' : 'none';
-      btn.textContent = open ? 'Hide votes' : 'View votes';
+      open = !open; boxV.style.display = open ? 'block' : 'none'; btn.textContent = open ? 'Hide votes' : 'View votes';
       if (!open || loaded) return;
       try {
-        // try RPC first (may fail if restricted)
-        const sb = window.__supa;
-        let rows = [];
+        const sb = window.__supa; let rows = [];
         try {
           const { data, error } = await sb.rpc('admin_votes_with_emails', { fid: id });
-          if (error) throw error;
-          rows = data || [];
+          if (error) throw error; rows = data || [];
         } catch {
-          // fallback: raw votes with user_id only
           const { data, error } = await sb.from('forecast_votes').select('*').eq('forecast_id', id);
           if (error) throw error;
           rows = (data||[]).map(v => ({ email: v.user_id, user_id: v.user_id, prob: v.prob, rationale: v.rationale, created_at: v.created_at }));
@@ -775,12 +743,8 @@ function refreshForecastListUser(){
               </tbody>
             </table>
           </div>`;
-        boxV.innerHTML = html;
-        loaded = true;
-      } catch (e) {
-        console.error('[Willow] view votes error', e);
-        boxV.innerHTML = '<div class="muted">Unable to load votes.</div>';
-      }
+        boxV.innerHTML = html; loaded = true;
+      } catch (e) { console.error('[Willow] view votes error', e); boxV.innerHTML = '<div class="muted">Unable to load votes.</div>'; }
     });
   });
 }
@@ -789,17 +753,10 @@ function refreshForecastListUser(){
   const sb = window.__supa;
   function fromDbRow(r){
     return {
-      id: r.id,
-      title: r.title,
-      resolution_criteria: r.resolution_criteria ?? null,
-      closeAt: r.close_at ?? null,
-      resolveBy: r.resolve_by ?? null,
-      status: r.status ?? 'open',
-      tags: r.tags ?? [],
-      linkedNoteIds: r.linked_note_ids ?? [],
-      updates: r.updates ?? [],
-      metrics: r.metrics ?? {},
-      resolution: r.resolution ?? null,
+      id: r.id, title: r.title, resolution_criteria: r.resolution_criteria ?? null,
+      closeAt: r.close_at ?? null, resolveBy: r.resolve_by ?? null,
+      status: r.status ?? 'open', tags: r.tags ?? [], linkedNoteIds: r.linked_note_ids ?? [],
+      updates: r.updates ?? [], metrics: r.metrics ?? {}, resolution: r.resolution ?? null,
       updated_at: r.updated_at ?? new Date().toISOString()
     };
   }
@@ -826,8 +783,7 @@ function refreshForecastListUser(){
         if (payload.eventType === 'DELETE') {
           const row = payload.old; map.delete(row.id);
         } else {
-          const row = payload.new;
-          const f = fromDbRow(row);
+          const row = payload.new; const f = fromDbRow(row);
           const cur=map.get(f.id);
           if(!cur || new Date(f.updated_at||0) >= new Date(cur.updated_at||0)) map.set(f.id, f);
         }
