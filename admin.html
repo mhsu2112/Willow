@@ -80,7 +80,7 @@
   });
 </script>
 
-<!-- Admin gate (classic script; doesn't need Supabase) -->
+<!-- Admin gate -->
 <script>
   const gate = document.getElementById('gate');
   const panel = document.getElementById('panel');
@@ -101,7 +101,7 @@
   if (localStorage.getItem('willow_admin_ok') === '1') openPanel();
 </script>
 
-<!-- Forecast core (admin UI only; local store) -->
+<!-- Forecast helpers (local) -->
 <script>
 const LS_FC = 'willow_forecasts';
 const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
@@ -206,7 +206,7 @@ function refreshForecastList(votesById){
     const doResolve = async (outcomeYes) => {
       const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
       const pStar = aggregateLogOdds(f.updates||[]) ?? (f.updates?.length ? f.updates[f.updates.length-1].p : 0.5);
-      const score = brier(pStar, outcomeYes);
+      const score = (function(){ const y = outcomeYes ? 1 : 0; return (Math.min(.999, Math.max(.001, pStar)) - y) ** 2; })();
       f.status = 'resolved';
       f.resolution = { outcome: outcomeYes?'YES':'NO', t: new Date().toISOString(), comment: '' };
       f.metrics = { brier: score };
@@ -228,18 +228,52 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
 });
 </script>
 
-<!-- Supabase sync (admin) -->
+<!-- Supabase sync (admin) with camel<->snake mapping -->
 <script type="module">
   const sb = window.__supa;
   const syncMsgEl = document.getElementById('fcSyncMsg');
   const setSync = (t)=>{ if(syncMsgEl) syncMsgEl.textContent=t; };
+
+  // mappers
+  function toDbRow(f){
+    return {
+      id: f.id,
+      title: f.title,
+      resolution_criteria: f.resolution_criteria ?? f.resolutionCriteria ?? null,
+      close_at: f.closeAt ?? null,
+      resolve_by: f.resolveBy ?? null,
+      status: f.status ?? 'open',
+      tags: f.tags ?? [],
+      linked_note_ids: f.linkedNoteIds ?? [],
+      updates: f.updates ?? [],
+      metrics: f.metrics ?? {},
+      resolution: f.resolution ?? null,
+      updated_at: f.updated_at ?? new Date().toISOString()
+    };
+  }
+  function fromDbRow(r){
+    return {
+      id: r.id,
+      title: r.title,
+      resolution_criteria: r.resolution_criteria ?? null,
+      closeAt: r.close_at ?? null,
+      resolveBy: r.resolve_by ?? null,
+      status: r.status ?? 'open',
+      tags: r.tags ?? [],
+      linkedNoteIds: r.linked_note_ids ?? [],
+      updates: r.updates ?? [],
+      metrics: r.metrics ?? {},
+      resolution: r.resolution ?? null,
+      updated_at: r.updated_at ?? new Date().toISOString()
+    };
+  }
 
   async function pullForecastsFromServer(){
     const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
     if(error){ console.warn('[Willow] pull error', error); setSync('Cloud sync: error.'); return; }
     const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
     const map=new Map(local.map(f=>[f.id,f]));
-    for(const r of data){ const l=map.get(r.id); if(!l || new Date(r.updated_at||0) > new Date(l.updated_at||0)) map.set(r.id, r); }
+    for(const r of data){ const f = fromDbRow(r); const l=map.get(f.id); if(!l || new Date(f.updated_at||0) > new Date(l.updated_at||0)) map.set(f.id, f); }
     localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
     setSync('Cloud sync: up to date.');
     try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
@@ -247,7 +281,8 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
 
   window.pushForecastToServer = async function(f){
     try {
-      const { error } = await sb.from('forecasts').upsert(f, { onConflict: 'id' });
+      const row = toDbRow(f);
+      const { error } = await sb.from('forecasts').upsert(row, { onConflict: 'id' });
       if(error){ console.warn('[Willow] upsert error', error); setSync('Cloud sync: upsert error.'); }
       else setSync('Cloud sync: saved.');
     } catch (e) { console.warn('[Willow] push failed', e); setSync('Cloud sync: offline.'); }
@@ -269,8 +304,9 @@ document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
         const row = payload.new || payload.old;
         if(payload.eventType==='DELETE'){ map.delete(row.id); }
         else {
-          const cur=map.get(row.id);
-          if(!cur || new Date(row.updated_at||0) >= new Date(cur.updated_at||0)) map.set(row.id, row);
+          const fx = fromDbRow(row);
+          const cur=map.get(fx.id);
+          if(!cur || new Date(fx.updated_at||0) >= new Date(cur.updated_at||0)) map.set(fx.id, fx);
         }
         localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
         try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
