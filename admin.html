@@ -150,4 +150,236 @@ function renderForecastCard(f){
   const closed = status === 'closed';
   return `
   <div class="card" data-fid="${f.id}">
-    <div class="row
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <strong>${f.title}</strong>
+        <div class="muted">${f.resolution_criteria||''}</div>
+        <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}</div>
+      </div>
+      <div>
+        ${renderSparkline(values)}
+      </div>
+    </div>
+    ${status === 'resolved' ? `
+      <div class="row" style="margin-top:6px;">
+        <span class="pill">Resolved: ${f.resolution?.outcome}</span>
+        <span class="pill">Brier: ${f.metrics?.brier?.toFixed(3) ?? '-'}</span>
+      </div>
+    ` : `
+      <div class="row" style="margin-top:10px;align-items:center;">
+        <input type="range" min="1" max="99" value="${pct}" class="fcProb" style="flex:1">
+        <span class="pill fcProbLabel" style="min-width:48px;text-align:center;">${pct}%</span>
+        <button class="btn" data-q="5">5%</button><button class="btn" data-q="10">10%</button>
+        <button class="btn" data-q="20">20%</button><button class="btn" data-q="40">40%</button>
+        <button class="btn" data-q="60">60%</button><button class="btn" data-q="80">80%</button>
+        <button class="btn" data-q="90">90%</button><button class="btn" data-q="95">95%</button>
+      </div>
+      <textarea class="fcWhy" placeholder="Rationale / links to notes…"></textarea>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn primary fcUpdate" ${closed?'disabled':''}>Update</button>
+        <button class="btn fcClose" ${closed?'disabled':''}>Close</button>
+        <button class="btn danger fcResolveYes">Resolve YES</button>
+        <button class="btn danger fcResolveNo">Resolve NO</button>
+        <button class="btn danger fcDelete" style="margin-left:auto;">Delete</button>
+      </div>
+    `}
+  </div>`;
+}
+function refreshForecastList(){
+  const box = document.getElementById('fcList');
+  const arr = loadForecasts().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1));
+  box.innerHTML = arr.length ? arr.map(renderForecastCard).join('') : '<div class="muted">No forecasts yet.</div>';
+
+  box.querySelectorAll('.card[data-fid]').forEach(card=>{
+    const id = card.getAttribute('data-fid');
+    const slider = card.querySelector('.fcProb');
+    const label  = card.querySelector('.fcProbLabel');
+    const why    = card.querySelector('.fcWhy');
+
+    if (slider && label) slider.addEventListener('input', ()=>label.textContent = slider.value + '%');
+    card.querySelectorAll('[data-q]').forEach(btn=>{
+      btn.addEventListener('click',()=>{ if(!slider||!label) return; slider.value=btn.getAttribute('data-q'); label.textContent=slider.value+'%'; });
+    });
+
+    card.querySelector('.fcUpdate')?.addEventListener('click', async ()=>{
+      const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
+      const p = (slider? Number(slider.value)/100 : 0.5);
+      const rationale = (why? why.value.trim() : '');
+      (f.updates ||= []).push({ t: new Date().toISOString(), p, rationale, by: 'admin' });
+      f.updated_at = new Date().toISOString();
+      saveForecasts(all); await pushForecastToServer(f); refreshForecastList();
+    });
+
+    card.querySelector('.fcClose')?.addEventListener('click', async ()=>{
+      const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
+      f.status = 'closed'; f.updated_at = new Date().toISOString();
+      saveForecasts(all); await pushForecastToServer(f); refreshForecastList();
+    });
+
+    const doResolve = async (outcomeYes) => {
+      const all = loadForecasts(); const f = all.find(x=>x.id===id); if(!f) return;
+      const pStar = (function(ev){ if (!(ev?.length)) return 0.5; return (function(updates, now=Date.now(), halfLifeDays=14, extremize=1.3) {
+        if (!updates?.length) return null;
+        const HL = halfLifeDays * 864e5; let num=0, den=0;
+        for (const u of updates) { const t = (typeof u.t === 'string') ? new Date(u.t).getTime() : +u.t; const w = Math.exp(-(now - t)/HL); const L = Math.log((Math.min(.999,Math.max(.001,u.p)))/(1-Math.min(.999,Math.max(.001,u.p)))); num += w * L; den += w; }
+        if (den === 0) return null; return 1/(1+Math.exp(-((num/den) * extremize)));
+      })(ev) ?? ev[ev.length-1].p ?? 0.5; })(f.updates||[]);
+      const y = outcomeYes ? 1 : 0; const score = (Math.min(.999, Math.max(.001, pStar)) - y) ** 2;
+      f.status = 'resolved';
+      f.resolution = { outcome: outcomeYes?'YES':'NO', t: new Date().toISOString(), comment: '' };
+      f.metrics = { brier: score };
+      f.updated_at = new Date().toISOString();
+      saveForecasts(all); await pushForecastToServer(f); refreshForecastList();
+    };
+    card.querySelector('.fcResolveYes')?.addEventListener('click', ()=>doResolve(true));
+    card.querySelector('.fcResolveNo')?.addEventListener('click', ()=>doResolve(false));
+
+    card.querySelector('.fcDelete')?.addEventListener('click', async ()=>{
+      if (!confirm('Delete this forecast? This cannot be undone.')) return;
+      try {
+        const { error } = await window.__supa.from('forecasts').delete().eq('id', id);
+        if (error) throw error;
+        saveForecasts(loadForecasts().filter(f=>f.id!==id));
+        refreshForecastList();
+      } catch (e) {
+        alert('Delete failed. See console.'); console.error(e);
+      }
+    });
+  });
+}
+document.getElementById('fcCreate')?.addEventListener('click', async ()=>{
+  const title = document.getElementById('fcTitle').value.trim(); if (!title) return alert('Enter a question');
+  const crit = document.getElementById('fcCriteria').value.trim();
+  const close = document.getElementById('fcClose').value ? new Date(document.getElementById('fcClose').value).toISOString() : null;
+  const f = { id:newForecastId(), title, resolution_criteria:crit, closeAt:close, resolveBy:null, status:'open', tags:[], linkedNoteIds:[], updates:[], metrics:{}, resolution:null, updated_at:new Date().toISOString() };
+  const arr = loadForecasts(); arr.push(f); saveForecasts(arr); await pushForecastToServer(f);
+  document.getElementById('fcTitle').value=''; document.getElementById('fcCriteria').value=''; document.getElementById('fcClose').value='';
+  refreshForecastList();
+});
+</script>
+
+<script type="module">
+  const sb = window.__supa;
+  const syncMsgEl = document.getElementById('fcSyncMsg');
+  const setSync = (t)=>{ if(syncMsgEl) syncMsgEl.textContent=t; };
+
+  function toDbRow(f){
+    return {
+      id: f.id,
+      title: f.title,
+      resolution_criteria: f.resolution_criteria ?? null,
+      close_at: f.closeAt ?? null,
+      resolve_by: f.resolveBy ?? null,
+      status: f.status ?? 'open',
+      tags: f.tags ?? [],
+      linked_note_ids: f.linkedNoteIds ?? [],
+      updates: f.updates ?? [],
+      metrics: f.metrics ?? {},
+      resolution: f.resolution ?? null,
+      updated_at: f.updated_at ?? new Date().toISOString()
+    };
+  }
+  function fromDbRow(r){
+    return {
+      id: r.id,
+      title: r.title,
+      resolution_criteria: r.resolution_criteria ?? null,
+      closeAt: r.close_at ?? null,
+      resolveBy: r.resolve_by ?? null,
+      status: r.status ?? 'open',
+      tags: r.tags ?? [],
+      linkedNoteIds: r.linked_note_ids ?? [],
+      updates: r.updates ?? [],
+      metrics: r.metrics ?? {},
+      resolution: r.resolution ?? null,
+      updated_at: r.updated_at ?? new Date().toISOString()
+    };
+  }
+
+  async function pullForecastsFromServer(){
+    const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
+    if(error){ console.warn('[Willow] pull error', error); setSync('Cloud sync: error.'); return; }
+    const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
+    const map=new Map(local.map(f=>[f.id,f]));
+    for(const r of data){ const f = fromDbRow(r); const l=map.get(f.id); if(!l || new Date(f.updated_at||0) > new Date(l.updated_at||0)) map.set(f.id, f); }
+    localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
+    setSync('Cloud sync: up to date.');
+    try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
+  }
+
+  window.pushForecastToServer = async function(f){
+    try {
+      const row = toDbRow(f);
+      const { error } = await sb.from('forecasts').upsert(row, { onConflict: 'id' });
+      if(error){ console.warn('[Willow] upsert error', error); setSync('Cloud sync: upsert error.'); }
+      else setSync('Cloud sync: saved.');
+    } catch (e) { console.warn('[Willow] push failed', e); setSync('Cloud sync: offline.'); }
+  };
+
+  function subscribeRealtime(){
+    sb.channel('willow-forecasts-admin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecasts' }, (payload) => {
+        const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
+        const map=new Map(local.map(f=>[f.id,f]));
+        if(payload.eventType==='DELETE'){ const row = payload.old; map.delete(row.id); }
+        else {
+          const row = payload.new;
+          const fx = fromDbRow(row);
+          const cur=map.get(fx.id);
+          if(!cur || new Date(fx.updated_at||0) >= new Date(cur.updated_at||0)) map.set(fx.id, fx);
+        }
+        localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
+        try { if(typeof refreshForecastList==='function') refreshForecastList(); } catch {}
+      })
+      .subscribe();
+  }
+
+  await pullForecastsFromServer();
+  subscribeRealtime();
+</script>
+
+<script type="module">
+  const sb2 = window.__supa;
+  async function fetchUserTagStats(){
+    const { data, error } = await sb2.from('user_tag_stats').select('most_tags, least_tags');
+    if (error) { console.warn('[Willow] tag stats error', error); return []; }
+    return data || [];
+  }
+  function aggregatePopularTags(rows){
+    const counts = new Map();
+    rows.forEach(r => (r.most_tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+3)));
+    rows.forEach(r => (r.least_tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+1)));
+    try {
+      const notes = JSON.parse(localStorage.getItem('willow_notes')||'[]');
+      notes.forEach(n => (n.tags||[]).forEach(t => counts.set(t, (counts.get(t)||0)+2)));
+    } catch {}
+    return [...counts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([t])=>t);
+  }
+  function makeQuestionTemplates(tag){
+    const yr = new Date().getFullYear();
+    return [
+      `Will ${tag} risks materially increase by ${yr}?`,
+      `Will policy changes related to ${tag} be enacted by ${yr}?`,
+      `Will markets price a ${tag} shock (≥1σ daily move) before ${yr+1}-06-30?`
+    ];
+  }
+  function renderSuggestions(tags){
+    const box=document.getElementById('suggestionsBox'); const rows=[];
+    tags.forEach(tag=>{
+      const qs=makeQuestionTemplates(tag);
+      qs.forEach(q=>rows.push(`<div class="prop-card"><div><strong>${q}</strong></div><div class="row" style="margin-top:6px;"><button class="btn primary" data-use-q="${encodeURIComponent(q)}" data-tag="${encodeURIComponent(tag)}">Use this</button></div></div>`));
+    });
+    box.innerHTML = rows.join('') || '<div class="muted">No tag signals yet.</div>';
+    box.querySelectorAll('[data-use-q]').forEach(btn=>btn.addEventListener('click',()=>{
+      const q=decodeURIComponent(btn.getAttribute('data-use-q')); const tag=decodeURIComponent(btn.getAttribute('data-tag'));
+      document.getElementById('fcTitle').value=q;
+      document.getElementById('fcCriteria').value=`Track via notes tagged “${tag}”. Define resolution consistent with the question.`;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }));
+  }
+  document.getElementById('genSuggest')?.addEventListener('click', async ()=>{
+    const rows = await fetchUserTagStats(); const tags = aggregatePopularTags(rows); renderSuggestions(tags);
+  });
+</script>
+</body>
+</html>
