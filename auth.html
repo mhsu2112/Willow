@@ -68,7 +68,6 @@
   };
 </script>
 
-<!-- Create Supabase client with API key header -->
 <script type="module">
   import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   const { url, anon } = window.WILLOW_CFG;
@@ -79,7 +78,6 @@
 
   const supa = window.__supa;
 
-  // If already signed in, go straight to app
   try {
     const { data: { session } } = await supa.auth.getSession();
     if (session?.user) {
