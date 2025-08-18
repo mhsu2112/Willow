@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Willow — Forecasts</title>
+<style>
+  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --bg:#f8fafc; --danger:#ef4444; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  header{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);z-index:10}
+  nav{max-width:1000px;margin:auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+  .chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);text-decoration:none;cursor:pointer;box-shadow:0 1px 0 rgba(0,0,0,.02);transition:transform .12s, box-shadow .12s, border-color .12s}
+  .chip:hover{transform:translateY(-1px);box-shadow:0 6px 14px rgba(2,6,23,.06);border-color:#d0d7e2}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chip.badge{padding:6px 10px;border-color:#cfd8e3;color:#64748b;cursor:default}
+  main{max-width:1000px;margin:auto;padding:20px 16px 80px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pill{font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:#64748b}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+  .btn{font:inherit;border:1px solid var(--line);background:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .muted{color:#64748b}
+  textarea,input{font:inherit}
+  textarea{width:100%;min-height:80px;padding:10px;border:1px solid var(--line);border-radius:10px;resize:vertical}
+  input[type="range"]{width:100%}
+  table{border-collapse:collapse;width:100%}
+  th,td{border-bottom:1px solid var(--line);padding:6px 0;text-align:left}
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <div class="chips">
+      <a class="chip" href="index.html">← Back to Notes</a>
+    </div>
+    <div class="chips" id="navRight">
+      <a class="chip" href="index.html">📝 Notes</a>
+      <a class="chip active" href="forecasts.html">🎯 Forecasts</a>
+      <a class="chip" href="admin.html">🛠️ Admin</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <h1 style="margin:0;font-size:22px;">Community Forecasts</h1>
+  <p class="muted" style="margin-top:6px;">Vote once per question. Admins manage questions on the Admin page.</p>
+  <div id="fcList" style="margin-top:12px;"></div>
+</main>
+
+<script>
+  window.WILLOW_CFG = {
+    url: 'https://seolktqxdxstwqdiqzke.supabase.co',
+    anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlb2xrdHF4ZHhzdHdxZGlxemtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNjc0MjAsImV4cCI6MjA3MDk0MzQyMH0.Qt6wLLfR1QxbYGpq42t1uwpy5kDdqb_LN5-JA89Fj-U'
+  };
+</script>
+
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+  const { url, anon } = window.WILLOW_CFG;
+
+  const originHost = new URL(url).host;
+  const withApiKeyQuery = async (input, init) => {
+    const reqUrl = typeof input === 'string' ? input : input.url;
+    try {
+      const u = new URL(reqUrl);
+      if (u.host === originHost && u.pathname.includes('/rest/v1/')) {
+        if (!u.searchParams.has('apikey')) u.searchParams.set('apikey', anon);
+      }
+      return fetch(u.toString(), init);
+    } catch {
+      return fetch(input, init);
+    }
+  };
+
+  window.__supa = window.__supa || createClient(url, anon, {
+    auth: { persistSession: true, autoRefreshToken: true },
+    global: { headers: { apikey: anon }, fetch: withApiKeyQuery }
+  });
+
+  const supa = window.__supa;
+  const { data: { session }} = await supa.auth.getSession().catch(()=>({data:{}}));
+  if (!session?.user) {
+    location.href = new URL('auth.html', location.href).href;
+  } else {
+    const nav = document.getElementById('navRight');
+    const badge = document.createElement('span');
+    badge.className = 'chip badge';
+    badge.textContent = session.user.email || session.user.id.slice(0,8);
+    nav.appendChild(badge);
+    const out = document.createElement('button');
+    out.className = 'chip';
+    out.textContent = 'Sign out';
+    out.onclick = async ()=>{ await supa.auth.signOut(); location.href = 'auth.html'; };
+    nav.appendChild(out);
+    window.currentUserId = session.user.id;
+    window.currentUserEmail = session.user.email;
+  }
+</script>
+
+<script>
+  const LS_FC = 'willow_forecasts';
+  const LS_VOTES = 'willow_votes';
+  const loadForecasts = () => { try { return JSON.parse(localStorage.getItem(LS_FC) || '[]'); } catch { return []; } };
+  const saveForecasts = (arr) => localStorage.setItem(LS_FC, JSON.stringify(arr));
+  const loadVotes = () => { try { return JSON.parse(localStorage.getItem(LS_VOTES) || '[]'); } catch { return []; } };
+  const saveVotes = (arr) => localStorage.setItem(LS_VOTES, JSON.stringify(arr));
+
+  const clamp = (x,a=0.001,b=0.999) => Math.min(b, Math.max(a, x));
+  const logit = (p) => Math.log(p/(1-p));
+  const invLogit = (L) => 1/(1+Math.exp(-L));
+  function aggregateLogOdds(events, now=Date.now(), halfLifeDays=14, extremize=1.3) {
+    if (!events?.length) return null;
+    const HL = halfLifeDays * 864e5; let num=0, den=0;
+    for (const u of events) { const t = (typeof u.t === 'string') ? new Date(u.t).getTime() : +u.t; const w = Math.exp(-(now - t)/HL); const L = logit(clamp(u.p)); num += w * L; den += w; }
+    if (den === 0) return null; return invLogit((num/den) * extremize);
+  }
+  function renderSparkline(values, w=120, h=28) {
+    if (!values?.length) return `<svg width="${w}" height="${h}"></svg>`;
+    const min=0, max=1, step=w/(values.length-1||1);
+    const pts = values.map((p,i)=>`${(i*step).toFixed(1)},${(h - (p-min)/(max-min)*h).toFixed(1)}`).join(' ');
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="#4f46e5" stroke-width="2" points="${pts}"/></svg>`;
+  }
+  const combinedEvents = (f, votes) => {
+    const ev = [];
+    (f.updates||[]).forEach(u => ev.push({ t: u.t || u.time || f.updated_at || new Date().toISOString(), p: u.p }));
+    (votes||[]).forEach(v => ev.push({ t: v.created_at || v.t, p: v.prob }));
+    ev.sort((a,b)=> new Date(a.t) - new Date(b.t));
+    return ev;
+  };
+</script>
+
+<script>
+  function renderForecastCard(f, votesMap){
+    const votes = votesMap.get(f.id) || [];
+    const me = window.currentUserId;
+    const my = me ? votes.find(v => v.user_id === me) : null;
+
+    const events = combinedEvents(f, votes);
+    const values = events.map(e=>e.p);
+    const pStar = aggregateLogOdds(events) ?? (values.length ? values[values.length-1] : 0.5);
+    const pct = Math.round((pStar||0.5)*100);
+
+    const status = f.status || 'open';
+    const open = status === 'open';
+
+    return `
+      <div class="card" data-fid="${f.id}">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <strong>${f.title}</strong>
+            <div class="muted">${f.resolution_criteria||''}</div>
+            <div class="muted">Status: ${status}${f.closeAt?`, closes: ${new Date(f.closeAt).toLocaleDateString()}`:''}${f.resolution?.outcome?`, outcome: ${f.resolution.outcome}`:''}</div>
+            <div class="muted">Votes: ${votes.length}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="pill" style="display:inline-block;margin-bottom:6px;">Agg: ${pct}%</div>
+            ${renderSparkline(values)}
+          </div>
+        </div>
+
+        ${ open ? `
+          <div class="row" style="margin-top:10px;align-items:center;">
+            ${ my ? `<span class="pill">You voted: ${Math.round((my.prob||0.5)*100)}% <span class="muted">(${new Date(my.created_at||Date.now()).toLocaleDateString()})</span></span>` :
+            `<input type="range" min="1" max="99" value="${pct}" class="voteProb" style="flex:1">
+             <span class="pill voteProbLabel" style="min-width:48px;text-align:center;">${pct}%</span>`}
+          </div>
+          ${ my ? `` : `
+            <textarea class="voteWhy" placeholder="Why? (optional)"></textarea>
+            <div class="row" style="margin-top:8px;">
+              <button class="btn primary voteSubmit">Submit vote</button>
+            </div>
+          `}
+        ` : ``}
+
+        <div class="card" style="margin-top:10px;">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <strong>Votes</strong>
+            <button class="btn viewVotesBtn">View votes</button>
+          </div>
+          <div class="votesBox muted" style="display:none;margin-top:6px;">Loading…</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function groupVotesByForecast(votes){
+    const map = new Map();
+    for (const v of votes) {
+      if (!map.has(v.forecast_id)) map.set(v.forecast_id, []);
+      map.get(v.forecast_id).push(v);
+    }
+    return map;
+  }
+
+  function refreshForecastList(){
+    const box = document.getElementById('fcList');
+    const arr = loadForecasts().sort((a,b)=>(a.status==='open'?0:1)-(b.status==='open'?0:1));
+    const votes = loadVotes();
+    const votesMap = groupVotesByForecast(votes);
+    box.innerHTML = arr.length ? arr.map(f=>renderForecastCard(f, votesMap)).join('') : '<div class="muted">No forecasts yet.</div>';
+
+    box.querySelectorAll('.card[data-fid]').forEach(card=>{
+      const id = card.getAttribute('data-fid');
+      const slider = card.querySelector('.voteProb');
+      const label  = card.querySelector('.voteProbLabel');
+      if (slider && label) slider.addEventListener('input', ()=>label.textContent = slider.value + '%');
+
+      card.querySelector('.voteSubmit')?.addEventListener('click', async ()=>{
+        const sb = window.__supa;
+        const uid = window.currentUserId;
+        if (!sb || !uid) { alert('Sign in required.'); return; }
+        const p = slider ? Number(slider.value)/100 : 0.5;
+        const rationale = (card.querySelector('.voteWhy')?.value||'').trim();
+        try {
+          const { error } = await sb.from('forecast_votes').insert({ forecast_id: id, user_id: uid, prob: p, rationale });
+          if (error) {
+            const msg = (error.message||'').toLowerCase()+(error.details||'').toLowerCase();
+            if (msg.includes('duplicate') || msg.includes('primary key')) alert('You already voted on this question.');
+            else alert('Vote failed: ' + error.message);
+            return;
+          }
+          const cur = loadVotes(); cur.push({ forecast_id:id, user_id:uid, prob:p, rationale, created_at:new Date().toISOString() });
+          saveVotes(cur); refreshForecastList();
+        } catch (e) { alert('Vote failed. See console.'); console.error(e); }
+      });
+
+      const btn = card.querySelector('.viewVotesBtn');
+      const boxV = card.querySelector('.votesBox');
+      let open = false, loaded = false;
+      btn?.addEventListener('click', async ()=>{
+        open = !open; boxV.style.display = open ? 'block' : 'none'; btn.textContent = open ? 'Hide votes' : 'View votes';
+        if (!open || loaded) return;
+        try {
+          const sb = window.__supa; let rows = [];
+          try {
+            const { data, error } = await sb.rpc('admin_votes_with_emails', { fid: id });
+            if (error) throw error; rows = data || [];
+          } catch {
+            const { data, error } = await sb.from('forecast_votes').select('*').eq('forecast_id', id);
+            if (error) throw error;
+            rows = (data||[]).map(v => ({ email: v.user_id, user_id: v.user_id, prob: v.prob, rationale: v.rationale, created_at: v.created_at }));
+          }
+          if (!rows.length) { boxV.innerHTML = '<div class="muted">No votes yet.</div>'; loaded = true; return; }
+          rows.sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
+          const html = `
+            <div style="overflow:auto">
+              <table>
+                <thead>
+                  <tr><th>User</th><th style="text-align:right;">Prob</th><th>Why</th><th>Time</th></tr>
+                </thead>
+                <tbody>
+                  ${rows.map(v=>`
+                    <tr>
+                      <td>${(v.email || '').replace(/</g,'&lt;') || (v.user_id||'').slice(0,8)}</td>
+                      <td style="text-align:right;">${Math.round((v.prob||0.5)*100)}%</td>
+                      <td>${(v.rationale||'').replace(/</g,'&lt;')}</td>
+                      <td>${new Date(v.created_at).toLocaleString()}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>`;
+          boxV.innerHTML = html; loaded = true;
+        } catch (e) { console.error('[Willow] view votes error', e); boxV.innerHTML = '<div class="muted">Unable to load votes.</div>'; }
+      });
+    });
+  }
+</script>
+
+<script type="module">
+  const sb = window.__supa;
+  function fromDbRow(r){
+    return {
+      id: r.id, title: r.title, resolution_criteria: r.resolution_criteria ?? null,
+      closeAt: r.close_at ?? null, resolveBy: r.resolve_by ?? null,
+      status: r.status ?? 'open', tags: r.tags ?? [], linkedNoteIds: r.linked_note_ids ?? [],
+      updates: r.updates ?? [], metrics: r.metrics ?? {}, resolution: r.resolution ?? null,
+      updated_at: r.updated_at ?? new Date().toISOString()
+    };
+  }
+  async function pullForecastsFromServer(){
+    const { data, error } = await sb.from('forecasts').select('*').order('updated_at', { ascending: true });
+    if(error){ console.warn('[Willow] pull forecasts error', error); return; }
+    const map=new Map();
+    for(const r of data){ const f = fromDbRow(r); map.set(f.id, f); }
+    localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
+    try { refreshForecastList(); } catch {}
+  }
+  async function pullVotesFromServer(){
+    const { data, error } = await sb.from('forecast_votes').select('*');
+    if(error){ console.warn('[Willow] pull votes error', error); return; }
+    localStorage.setItem('willow_votes', JSON.stringify(data || []));
+    try { refreshForecastList(); } catch {}
+  }
+  function subscribeRealtime(){
+    sb.channel('willow-forecasts-ro')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecasts' }, (payload) => {
+        const local = (function(){ try { return JSON.parse(localStorage.getItem('willow_forecasts')||'[]'); } catch { return []; } })();
+        const map=new Map(local.map(f=>[f.id,f]));
+        if (payload.eventType === 'DELETE') {
+          const row = payload.old; map.delete(row.id);
+        } else {
+          const row = payload.new; const f = fromDbRow(row);
+          const cur=map.get(f.id);
+          if(!cur || new Date(f.updated_at||0) >= new Date(cur.updated_at||0)) map.set(f.id, f);
+        }
+        localStorage.setItem('willow_forecasts', JSON.stringify([...map.values()]));
+        try { refreshForecastList(); } catch {}
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'forecast_votes' }, (payload) => {
+        const votes = (function(){ try { return JSON.parse(localStorage.getItem('willow_votes')||'[]'); } catch { return []; } })();
+        if (payload.eventType === 'DELETE') {
+          const row = payload.old;
+          const next = votes.filter(v => !(v.forecast_id===row.forecast_id && v.user_id===row.user_id));
+          localStorage.setItem('willow_votes', JSON.stringify(next));
+        } else {
+          const row = payload.new;
+          const i = votes.findIndex(v => v.forecast_id===row.forecast_id && v.user_id===row.user_id);
+          if (i >= 0) votes[i] = row; else votes.push(row);
+          localStorage.setItem('willow_votes', JSON.stringify(votes));
+        }
+        try { refreshForecastList(); } catch {}
+      })
+      .subscribe();
+  }
+
+  await pullForecastsFromServer();
+  await pullVotesFromServer();
+  subscribeRealtime();
+</script>
+</body>
+</html>
