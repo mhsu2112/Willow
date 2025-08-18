@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Willow — Admin</title>
+<style>
+  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; --bg:#f8fafc; --danger:#ef4444; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  header{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);z-index:10}
+  nav{max-width:1000px;margin:auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+  .chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);text-decoration:none;cursor:pointer;box-shadow:0 1px 0 rgba(0,0,0,.02);transition:transform .12s, box-shadow .12s, border-color .12s}
+  .chip:hover{transform:translateY(-1px);box-shadow:0 6px 14px rgba(2,6,23,.06);border-color:#d0d7e2}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chip.badge{padding:6px 10px;border-color:#cfd8e3;color:#64748b;cursor:default}
+  main{max-width:1000px;margin:auto;padding:20px 16px 80px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pill{font-size:12px;padding:2px 8px;border:1px solid var(--line);border-radius:999px;color:#64748b}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+  .btn{font:inherit;border:1px solid var(--line);background:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.danger{border-color:var(--danger);color:#ef4444}
+  .muted{color:#64748b}
+  textarea,input{font:inherit}
+  textarea{width:100%;min-height:80px;padding:10px;border:1px solid var(--line);border-radius:10px;resize:vertical}
+  input[type="datetime-local"]{padding:10px;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;width:100%}
+  th,td{border-bottom:1px solid var(--line);padding:6px 0;text-align:left}
+</style>
+
+</head>
+<body>
+<header>
+  <nav>
+    <div class="chips">
+      <a class="chip" href="index.html">← Back to Notes</a>
+    </div>
+    <div class="chips" id="navRight">
+      <a class="chip" href="index.html">📝 Notes</a>
+      <a class="chip" href="forecasts.html">🎯 Forecasts</a>
+      <a class="chip active" href="admin.html">🛠️ Admin</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <h1 style="margin:0;font-size:22px;">Admin Console</h1>
+  <p class="muted" style="margin-top:6px;">Password: <code>admin</code> (demo). Replace with proper RLS/roles later.</p>
+
+  <div id="gate" class="card" style="margin-top:12px;">
+    <div class="row">
+      <input id="adminPass" placeholder="Enter admin password" />
+      <button class="btn primary" id="unlock">Unlock</button>
+      <span id="who" class="pill" style="display:none"></span>
+      <button class="btn" id="signout" style="display:none">Sign out</button>
+    </div>
+  </div>
+
+  <section id="fcCreate" class="card" style="display:none;margin-top:12px;">
+    <h3 style="margin:0 0 8px 0;">Create Forecast</h3>
+    <label>Title<br/><input id="fcTitle" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px" placeholder="Will X happen by Y?"/></label><br/>
+    <label>Resolution Criteria<br/><textarea id="fcCriteria" placeholder="How will this resolve? What counts as YES/NO?"></textarea></label><br/>
+    <label>Close at (UTC)<br/><input id="fcClose" type="datetime-local"/></label><br/>
+    <label>Tags (comma-separated)<br/><input id="fcTags" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px" placeholder="macro, tech, policy"/></label>
+    <div class="row" style="margin-top:8px;">
+      <button class="btn primary" id="createFc">Create</button>
+      <span id="msg" class="muted"></span>
+    </div>
+  </section>
+
+  <section id="fcList" class="card" style="display:none;margin-top:12px;">
+    <h3 style="margin:0 0 8px 0;">All Forecasts</h3>
+    <div id="list"></div>
+  </section>
+</main>
+
+<script>
+  window.WILLOW_CFG = {
+    url: 'https://seolktqxdxstwqdiqzke.supabase.co',
+    anon: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNlb2xrdHF4ZHhzdHdxZGlxemtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNjc0MjAsImV4cCI6MjA3MDk0MzQyMH0.Qt6wLLfR1QxbYGpq42t1uwpy5kDdqb_LN5-JA89Fj-U'
+  };
+</script>
+
+<script>
+  // Hugging Face Router (OpenAI-compatible) config for DEMO purposes.
+  // WARNING: Embedding tokens in client code exposes them to anyone who can view source.
+  window.WILLOW_HF_BASE  = "https://router.huggingface.co/v1";
+  window.WILLOW_HF_MODEL = window.WILLOW_HF_MODEL || "AdaptLLM/finance-LLM:hf-inference";
+  window.WILLOW_HF_TOKEN = "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"; // DEMO ONLY
+</script>
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+  const { url, anon } = window.WILLOW_CFG;
+
+  const originHost = new URL(url).host;
+  const withApiKeyQuery = async (input, init) => {
+    const reqUrl = typeof input === 'string' ? input : input.url;
+    try {
+      const u = new URL(reqUrl);
+      if (u.host === originHost && u.pathname.includes('/rest/v1/')) {
+        if (!u.searchParams.has('apikey')) u.searchParams.set('apikey', anon);
+      }
+      return fetch(u.toString(), init);
+    } catch {
+      return fetch(input, init);
+    }
+  };
+
+  const supa = createClient(url, anon, {
+    auth: { persistSession: true, autoRefreshToken: true },
+    global: { headers: { apikey: anon }, fetch: withApiKeyQuery }
+  });
+  window.__supa = supa;
+
+  const { data: { session } } = await supa.auth.getSession().catch(()=>({data:{}}));
+  if (!session?.user) location.href = 'auth.html';
+  const user = session?.user;
+
+  const nav = document.getElementById('navRight');
+  const badge = document.createElement('span');
+  badge.className = 'chip badge';
+  badge.textContent = user?.email || user?.id?.slice(0,8) || 'unknown';
+  nav.appendChild(badge);
+  const signout = document.createElement('button');
+  signout.className = 'chip';
+  signout.textContent = 'Sign out';
+  signout.onclick = async ()=>{ await supa.auth.signOut(); location.href='auth.html'; };
+  nav.appendChild(signout);
+
+  const gate = document.getElementById('gate');
+  const createBox = document.getElementById('fcCreate');
+  const listBox = document.getElementById('fcList');
+  document.getElementById('unlock').onclick = ()=>{
+    const ok = (document.getElementById('adminPass').value === 'admin');
+    if (!ok) { alert('Wrong password'); return; }
+    gate.style.display = 'none';
+    createBox.style.display = 'block';
+    listBox.style.display = 'block';
+    loadAll();
+  };
+
+  function esc(s){return String(s).replace(/[&<>\"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+
+  document.getElementById('createFc').onclick = async ()=>{
+    const title = document.getElementById('fcTitle').value.trim();
+    const resolution_criteria = document.getElementById('fcCriteria').value.trim();
+    const close_at = document.getElementById('fcClose').value ? new Date(document.getElementById('fcClose').value).toISOString() : null;
+    const tags = document.getElementById('fcTags').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+    if (!title) { alert('Title required'); return; }
+    const id = 'F-' + Date.now();
+    const row = { id, title, resolution_criteria, close_at, status:'open', tags, updates:[], metrics:{}, resolution:null };
+    const { error } = await supa.from('forecasts').upsert(row, { onConflict: 'id' });
+    const msg = document.getElementById('msg');
+    if (error) { msg.textContent = 'Error: ' + error.message; return; }
+    msg.textContent = 'Created ✓';
+    document.getElementById('fcTitle').value='';document.getElementById('fcCriteria').value='';document.getElementById('fcClose').value='';document.getElementById('fcTags').value='';
+    loadAll();
+  };
+
+  function rowHtml(f){
+    return `<div class="card" style="margin-top:8px;">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <strong>${esc(f.title)}</strong>
+          <div class="muted">${esc(f.resolution_criteria||'')}</div>
+          <div class="muted">Status: ${f.status}${f.close_at?`, closes: ${new Date(f.close_at).toLocaleString()}`:''}</div>
+        </div>
+        <div class="row">
+          <button class="btn" data-act="close" data-id="${f.id}">Close</button>
+          <button class="btn" data-act="reopen" data-id="${f.id}">Reopen</button>
+          <button class="btn" data-act="resolve-yes" data-id="${f.id}">Resolve YES</button>
+          <button class="btn" data-act="resolve-no" data-id="${f.id}">Resolve NO</button>
+          <button class="btn danger" data-act="delete" data-id="${f.id}">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  async function loadAll(){
+    const list = document.getElementById('list');
+    list.innerHTML = 'Loading…';
+    const { data, error } = await supa.from('forecasts').select('*').order('updated_at', { ascending:false });
+    if (error) { list.textContent = 'Error: ' + error.message; return; }
+    list.innerHTML = data.map(rowHtml).join('') || '<div class="muted">No forecasts.</div>';
+  }
+</script>
+</body>
+</html>
