@@ -601,6 +601,7 @@ const agents = {
 - Be specific and concise. Prefer 1–2 focused relationships with mechanism and WHY it matters now.
 - Propose ONE candidate note text: include a 'Title:' line and 2–5 sentences as the body; mirror the user's writing style.
 - Avoid boilerplate. Use the note’s tags and vocabulary.
+- your answer will be presented directly to the user with no formatting exept for the title: line
 Context:
 ${ctx}`
   },
@@ -608,6 +609,7 @@ ${ctx}`
     system: (ctx) => `You are the Historian Agent. You will use the users note and give historical background with dates and proper notation on it's implication.
 - Give 1–2 analogs with parallels and contrasts; finish with what to watch.
 - Offer ONE candidate note: include a 'Title:' line and 2–5 sentences body in the user's style.
+- your answer will be presented directly to the user with no formatting exept for the title: line
 Context:
 ${ctx}`
   },
@@ -616,6 +618,7 @@ ${ctx}`
 - Do NOT reference existing note titles; invent a fresh, distinct topic about the financial system in some way.
 - Provide one actionable hypothesis and one falsifier about this financial topic.
 - Offer ONE candidate note: include a 'Title:' line and 2–5 sentences body in the user's style.
+- your answer will be presented directly to the user with no formatting exept for the title: line
 Context:
 ${ctx}`
   }
